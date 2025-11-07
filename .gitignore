@@ -1,3 +1,6 @@
+source/.zig-cache
+source/zig-out
+
 # Prerequisites
 *.d
 
