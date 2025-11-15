@@ -12,6 +12,10 @@ class Editor:
         self.fg = pr.Color(240, 236, 87, 255)
         self.txt = pr.Color(244, 245, 248, 255)
         self.dbg_gui_txt = pr.color_alpha(self.txt, 0.4)
+        self.op = pr.Color(205, 83, 52, 255)
+        self.kw = pr.Color(227, 99, 151, 240)
+        self.lit = pr.Color(143, 213, 166, 255)
+        self.dot = pr.Color(0, 166, 251, 255)
 
         self.is_running: bool = True
 
@@ -75,14 +79,62 @@ class Editor:
         pr.close_window()
 
     def canvas(self) -> None:
+        max_decl_width = 100
+        
+        for i, decl in enumerate(self.prj.decls):
+            if self.is_decl_visible(decl):
+                self.render_decl(i * max_decl_width, decl)
+        
+    def is_decl_visible(self, decl: PDecl) -> bool:
         # TODO: render only visible nodes
+        return True
     
-        # pr.draw_text_ex(self.code_font.cur_font, "x: u8 = 10", (190, 200), self.text_size, 2, self.fg)
-        for decl in self.prj.decls:
-            self.render_decl(decl)
+    def render_decl(self, x: float, decl: PDecl) -> None:
+        original_x = x
+
+        dot_radius = 7
+        x += dot_radius * 4
+
+        # just a showcase of the colors
+        m_name, x = self.render_text(x, 0, decl.name, self.fg)
+        _, x = self.render_text(x, 0, " = ", self.op)
+        _, x = self.render_text(x, 0, "import ", self.kw)
+        _, x = self.render_text(x, 0, "'std'", self.lit)
+
+        dot_pos = pr.Vector2(original_x, 0 + m_name.y // 2)
+        dot_gap = 2
+
+        if self.is_mouse_over_box(pr.vector2_add_value(dot_pos, -(dot_radius / 2)), dot_radius):
+            dot_radius *= 1.25
+            dot_gap = dot_radius
+
+        pr.draw_circle_v(dot_pos, dot_radius, self.dot)
+        pr.draw_circle_v(dot_pos, dot_radius - dot_gap, self.bg)
+
+    def is_mouse_over_box(self, pos: pr.Vector2, side_size: float) -> bool:
+        m = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
+        self.log(f"m: {m.x},{m.y} | pos: {pos.x},{pos.y}")
+        return (
+            m.x >= pos.x and m.x <= pos.x + side_size
+            and
+            m.y >= pos.y and m.y <= pos.y + side_size
+        )
     
-    def render_decl(self, decl: PDecl) -> None:
-        pass
+    def render_text(self, x: float, y: float, text: str, color: pr.Color) -> tuple[pr.Vector2, float]:
+        pr.draw_text_ex(
+            self.code_font.cur_font,
+            text,
+            (x, y),
+            self.text_size,
+            1,
+            color
+        )
+
+        m = pr.measure_text_ex(
+            self.code_font.cur_font, text, self.text_size, 1
+        )
+
+        return m, x + m.x
 
     def gui(self) -> None:
         self.display_fps()
@@ -153,7 +205,6 @@ class Editor:
             self.text_size += mouse_scroll
             self.cap_text_size()
             self.refresh_code_font()
-            self.log(f"text_size: {self.text_size} | cur_font_idx: {self.code_font.cur_idx} ({self.code_font.sizes[self.code_font.cur_idx]})")
     
     def cap_text_size(self) -> None:
         val = self.text_size
