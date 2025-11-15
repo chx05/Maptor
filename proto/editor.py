@@ -4,6 +4,7 @@ import utils
 from multi_sized_font import MultiSizedFont
 from time import time
 from project import Project
+from syntree import *
 
 class Editor:
     def __init__(self) -> None:
@@ -74,7 +75,14 @@ class Editor:
         pr.close_window()
 
     def canvas(self) -> None:
-        pr.draw_text_ex(self.code_font.cur_font, "x: u8 = 10", (190, 200), self.text_size, 2, self.fg)
+        # TODO: render only visible nodes
+    
+        # pr.draw_text_ex(self.code_font.cur_font, "x: u8 = 10", (190, 200), self.text_size, 2, self.fg)
+        for decl in self.prj.decls:
+            self.render_decl(decl)
+    
+    def render_decl(self, decl: PDecl) -> None:
+        pass
 
     def gui(self) -> None:
         self.display_fps()
@@ -171,7 +179,7 @@ class Editor:
             1
         )
 
-        self.code_font: MultiSizedFont = MultiSizedFont(10, 40, step=5)
+        self.code_font: MultiSizedFont = MultiSizedFont(10, 50, step=5)
         self.code_font.load("res/3270.ttf")
         self.text_size: float = 30
         self.refresh_code_font()

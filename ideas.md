@@ -9,3 +9,4 @@ A bunch of ideas related to the editor
 - Functions, methods, structs etc should be pickable from a side menu (sorted alphabetically), no concept of multiple files, just all symbols merged toghether, maybe divided in different subgroups to delimit their usespace (instead of namespace)
 - Functions, methods, structs etc should be visualized on the map optionally and in a "blocky" shape, meaning I can actually move them around, althought the editor will help me aligning the blocks
 - There should be no concept of long scrolling text as it happens in files, this editor uses a map view, not a file view, you can have functions placed in parallel along the X axis instead of the Y axis
+- Visual parallel if-then branches
