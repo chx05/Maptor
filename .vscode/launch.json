@@ -8,7 +8,8 @@
             "name": "Python Debugger: Python File",
             "type": "debugpy",
             "request": "launch",
-            "program": "proto/main.py"
+            "cwd": "${workspaceFolder}/proto",
+            "program": "main.py",
         }
     ]
 }
