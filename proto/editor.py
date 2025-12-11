@@ -8,13 +8,14 @@ from syntree import *
 
 class Editor:
     def __init__(self) -> None:
-        self.bg = pr.Color(11, 10, 7, 255)
-        self.fg = pr.Color(240, 236, 87, 255)
-        self.txt = pr.Color(244, 245, 248, 255)
+        self.bg = pr.Color(244, 245, 248, 255)
+        self.fg = pr.Color(230, 109, 103, 255)
+        self.txt = pr.Color(11, 10, 7, 255)
+        self.wire = pr.color_alpha(self.txt, 0.2)
+        self.nontext_wire = pr.color_alpha(self.wire, 0.15)
         self.dbg_gui_txt = pr.color_alpha(self.txt, 0.4)
-        self.op = pr.Color(205, 83, 52, 255)
-        self.kw = pr.Color(227, 99, 151, 240)
-        self.lit = pr.Color(143, 213, 166, 255)
+        self.kw = pr.Color(232, 60, 145, 255)
+        self.lit = pr.Color(98, 129, 65, 255)
         self.dot = pr.Color(0, 166, 251, 255)
 
         self.is_running: bool = True
@@ -23,7 +24,14 @@ class Editor:
         self.logs: list[tuple[str, float]] = []
 
         self.gui_padding: int = 20
-    
+        self.interline_gap: float = 0.3
+        self.interdecl_gap: float = 12
+
+        self.x: float
+        self.y: float
+        self.max_x: float
+        self.base_x: float
+
     @property
     def w(self) -> int:
         return pr.get_screen_width()
@@ -79,37 +87,118 @@ class Editor:
         pr.close_window()
 
     def canvas(self) -> None:
-        max_decl_width = 100
+        self.x = 0
+        self.y = 0
+        self.max_x = 0
+        self.base_x = 0
+
+        for decl in self.prj.decls:
+            if not self.is_decl_visible(decl):
+                continue
+
+            self.decl(decl)
+            # flushing last line
+            self.carry()
+
+            self.base_x = self.max_x + self.adjust(self.interdecl_gap)
+            self.x = self.base_x
+            self.y = 0
         
-        for i, decl in enumerate(self.prj.decls):
-            if self.is_decl_visible(decl):
-                self.render_decl(i * max_decl_width, decl)
-        
-    def is_decl_visible(self, decl: PDecl) -> bool:
+    def is_decl_visible(self, decl: DeclNode) -> bool:
         # TODO: render only visible nodes
         return True
     
-    def render_decl(self, x: float, decl: PDecl) -> None:
-        original_x = x
+    def decl(self, decl: DeclNode) -> None:
+        self.text(decl.name, self.txt)
+        
+        match decl.value:
+            case FnNode():
+                fn = self.fn_node
 
-        dot_radius = 7
-        x += dot_radius * 4
+            case _:
+                raise NotImplementedError(decl.value.__class__)
+        
+        fn(decl.value)
 
-        # just a showcase of the colors
-        m_name, x = self.render_text(x, 0, decl.name, self.fg)
-        _, x = self.render_text(x, 0, " = ", self.op)
-        _, x = self.render_text(x, 0, "import ", self.kw)
-        _, x = self.render_text(x, 0, "'std'", self.lit)
+    def adjust(self, length: float) -> float:
+        return self.text_size * length
+    
+    def gap(self, length: float) -> None:
+        self.x += self.adjust(length)
 
-        dot_pos = pr.Vector2(original_x, 0 + m_name.y // 2)
-        dot_gap = 2
+    def fn_node(self, fn: FnNode) -> None:
+        left_indent = self.x
+        name_y = self.y
 
-        if self.is_mouse_over_box(pr.vector2_add_value(dot_pos, -(dot_radius / 2)), dot_radius):
-            dot_radius *= 1.25
-            dot_gap = dot_radius
+        for p in fn.ins:
+            self.pipewire()
+            self.text(p.name, self.txt)
+            self.typing_note_wire()
+            self.typing(p.typing)
 
-        pr.draw_circle_v(dot_pos, dot_radius, self.dot)
-        pr.draw_circle_v(dot_pos, dot_radius - dot_gap, self.bg)
+            self.carry_at(left_indent)
+        
+        for o in fn.outs:
+            self.cursorwire()
+            self.text(o.name, self.txt)
+            self.typing_note_wire()
+            self.typing(o.typing)
+
+            self.carry_at(left_indent)
+
+        self.carry()
+        self.carry()
+
+        #self.vborderwire(name_y + self.text_size + self.adjust(self.interline_gap))
+        self.vborderwire(self.y + self.adjust(1 + self.interline_gap) * 2 - self.adjust(self.interline_gap))
+        self.one()
+        self.one()
+        self.text("print", self.txt)
+        self.text("(", self.wire)
+        self.text('"Hello World!"', self.lit)
+        self.text(")", self.wire)
+        self.carry()
+        self.one()
+        self.one()
+        self.text("return", self.kw)
+        self.one()
+        self.text("10", self.lit)
+    
+    def one(self, n: int = 1) -> None:
+        self.text(" " * n, self.txt)
+
+    def update_xmax(self, max_x: float) -> float:
+        if self.x > max_x:
+            return self.x
+        
+        return max_x
+
+    def typing_note_wire(self) -> None:
+        self.text(": ", self.wire)
+
+    def typing(self, t: TypeNode) -> None:
+        match t:
+            case PrimitiveTypeNode():
+                self.text(t.kind, self.fg)
+            
+            case _:
+                raise NotImplementedError(t.__class__)
+
+    def cursorwire(self) -> None:
+        self.text(" > ", self.wire)
+    
+    def hborderwire(self, end_x: float) -> None:
+        self.carry()
+        pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(0.05), self.nontext_wire)
+        self.carry()
+    
+    def vborderwire(self, end_y: float) -> None:
+        x_padding = self.adjust(0.1)
+        pr.draw_line_ex((x_padding + self.x, self.y), (x_padding + self.x, end_y), self.adjust(0.05), self.nontext_wire)
+
+    def pipewire(self, side_gap: bool = True) -> None:
+        s = " | " if side_gap else "|"
+        self.text(s, self.wire)
 
     def is_mouse_over_box(self, pos: pr.Vector2, side_size: float) -> bool:
         m = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -120,11 +209,22 @@ class Editor:
             m.y >= pos.y and m.y <= pos.y + side_size
         )
     
-    def render_text(self, x: float, y: float, text: str, color: pr.Color) -> tuple[pr.Vector2, float]:
+    def carry(self) -> None:
+        if self.x > self.max_x:
+            self.max_x = self.x
+        
+        self.x = self.base_x
+        self.y += self.text_size + self.adjust(self.interline_gap)
+    
+    def carry_at(self, desired_x: float) -> None:
+        self.carry()
+        self.x = desired_x
+    
+    def text(self, text: str, color: pr.Color) -> None:
         pr.draw_text_ex(
             self.code_font.cur_font,
             text,
-            (x, y),
+            (self.x, self.y),
             self.text_size,
             1,
             color
@@ -134,7 +234,7 @@ class Editor:
             self.code_font.cur_font, text, self.text_size, 1
         )
 
-        return m, x + m.x
+        self.x += m.x
 
     def gui(self) -> None:
         self.display_fps()
@@ -185,8 +285,9 @@ class Editor:
     def inputs(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
 
+        shift = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
         mouse_dx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
-        if mouse_dx_btn:
+        if mouse_dx_btn or shift:
             delta = pr.get_mouse_delta()
             delta = pr.vector2_scale(delta, -1 / self.cam.zoom)
             self.cam.target = pr.vector2_add(self.cam.target, delta)
@@ -231,7 +332,10 @@ class Editor:
         )
 
         self.code_font: MultiSizedFont = MultiSizedFont(10, 50, step=5)
-        self.code_font.load("res/3270.ttf")
+        #self.code_font.load("res/3270.ttf")
+        self.code_font.load("res/hurmit.otf")
+        #self.code_font.load("res/agave.ttf")
+        #self.code_font.load("res/jetbrains.ttf")
         self.text_size: float = 30
         self.refresh_code_font()
 

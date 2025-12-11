@@ -11,7 +11,7 @@ def next_nid() -> int:
 
 
 @dataclass
-class PNode:
+class Node:
     def __post_init__(self) -> None:
         # nid is node id
         # so the editor can have an internal associative
@@ -19,30 +19,36 @@ class PNode:
         self.nid: int = next_nid()
 
 @dataclass
-class PDecl:
+class DeclNode:
     name: str
-    value: PNode
+    value: Node
 
 # --
 
 @dataclass
-class NType(PNode):
+class TypeNode(Node):
     pass
 
 @dataclass
-class NPrimitiveType(NType):
+class PrimitiveTypeNode(TypeNode):
     kind: str
 
 @dataclass
-class NStatement(PNode):
+class StmtNode(Node):
     pass
 
 @dataclass
-class NFunc(PNode):
-    class Param:
-        name: str
-        ntype: NType
+class IncomeNode:
+    name: str
+    typing: TypeNode
 
-    params: list[Param]
-    ret_ntype: NType
-    body: list[NStatement]
+@dataclass
+class OutcomeNode:
+    name: str
+    typing: TypeNode
+
+@dataclass
+class FnNode(Node):
+    ins: list[IncomeNode]
+    outs: list[OutcomeNode]
+    body: list[StmtNode]
