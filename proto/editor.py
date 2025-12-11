@@ -11,7 +11,7 @@ class Editor:
         self.bg = pr.Color(244, 245, 248, 255)
         self.fg = pr.Color(230, 109, 103, 255)
         self.txt = pr.Color(11, 10, 7, 255)
-        self.text_wire = pr.color_alpha(self.txt, 0.2)
+        self.text_wire = pr.color_alpha(self.txt, 0.3)
         self.nontext_wire = pr.color_alpha(self.text_wire, 0.15)
         self.dbg_gui_txt = pr.color_alpha(self.txt, 0.4)
         self.kw = pr.Color(232, 60, 145, 255)
@@ -24,9 +24,9 @@ class Editor:
         self.logs: list[tuple[str, float]] = []
 
         self.gui_padding: int = 20
-        self.interline_gap: float = 0.3
-        self.interdecl_gap: float = 12
-        self.indent_level_step: int = 0
+        self.interline_gap: float = 0.5
+        self.interdecl_gap: float = 15
+        self.indent_level_step: int = 2
 
         self.x: float
         self.y: float
@@ -125,15 +125,26 @@ class Editor:
     def adjust(self, length: float) -> float:
         return self.font_h_to_w_ratio * self.text_size * length
     
+    def hadjust(self, height: float) -> float:
+        return self.text_size * height
+    
     def gap(self, length: float) -> None:
         self.x += self.adjust(length)
 
-    def fn_node(self, fn: FnNode) -> None:
+    def fn_node_head(self, fn: FnNode) -> None:
+        self.gap(0.25)
+        self.wire("(")
+
+        if len(fn.ins) + len(fn.outs) == 0:
+            self.wire(")")
+            self.flat_carry()
+            self.flat_carry()
+            return
+
         self.indent()
         self.icarry()
         
         for p in fn.ins:
-            self.wire("| ")
             self.text(p.name, self.txt)
             self.typing_note_wire()
             self.typing(p.typing)
@@ -141,25 +152,32 @@ class Editor:
             self.icarry()
         
         for o in fn.outs:
-            self.wire("> ")
+            self.text("out", self.kw)
+            self.one()
             self.text(o.name, self.txt)
             self.typing_note_wire()
             self.typing(o.typing)
 
             self.icarry()
 
+        self.x -= self.adjust(self.indent_level)
+        self.wire(")")
+
         self.unindent()
         self.flat_carry()
         self.flat_carry()
 
-        #self.vborderwire(name_y + self.text_size + self.adjust(self.interline_gap))
-        self.vborderwire(self.y + self.adjust(1 + self.interline_gap) * 2 - self.adjust(self.interline_gap))
+    def fn_node(self, fn: FnNode) -> None:
+        self.fn_node_head(fn)
+
+        self.vborderwire(self.y + self.hadjust(self.interline_gap) * 2 - self.hadjust(self.interline_gap) + self.hadjust(2))
         self.one()
         self.one()
         self.text("print", self.txt)
-        self.text("(", self.text_wire)
+        self.gap(0.25)
+        self.wire("(")
         self.text('"Hello World!"', self.lit)
-        self.text(")", self.text_wire)
+        self.wire(")")
         self.icarry()
         self.one()
         self.one()
@@ -189,12 +207,12 @@ class Editor:
     
     def hborderwire(self, end_x: float) -> None:
         self.flat_carry()
-        pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(0.05), self.nontext_wire)
+        pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(0.2), self.nontext_wire)
         self.flat_carry()
     
     def vborderwire(self, end_y: float) -> None:
-        x_padding = self.adjust(0.1)
-        pr.draw_line_ex((x_padding + self.x, self.y), (x_padding + self.x, end_y), self.adjust(0.05), self.nontext_wire)
+        x_padding = self.adjust(0.5)
+        pr.draw_line_ex((x_padding + self.x, self.y), (x_padding + self.x, end_y), self.adjust(0.2), self.nontext_wire)
 
     def wire(self, txt: str) -> None:
         self.text(txt, self.text_wire)
@@ -213,7 +231,7 @@ class Editor:
             self.max_x = self.x
         
         self.x = self.base_x
-        self.y += self.text_size + self.adjust(self.interline_gap)
+        self.y += self.text_size + self.hadjust(self.interline_gap)
     
     def icarry(self) -> None:
         self.flat_carry()
