@@ -11,8 +11,8 @@ class Editor:
         self.bg = pr.Color(244, 245, 248, 255)
         self.fg = pr.Color(230, 109, 103, 255)
         self.txt = pr.Color(11, 10, 7, 255)
-        self.wire = pr.color_alpha(self.txt, 0.2)
-        self.nontext_wire = pr.color_alpha(self.wire, 0.15)
+        self.text_wire = pr.color_alpha(self.txt, 0.2)
+        self.nontext_wire = pr.color_alpha(self.text_wire, 0.15)
         self.dbg_gui_txt = pr.color_alpha(self.txt, 0.4)
         self.kw = pr.Color(232, 60, 145, 255)
         self.lit = pr.Color(98, 129, 65, 255)
@@ -26,11 +26,13 @@ class Editor:
         self.gui_padding: int = 20
         self.interline_gap: float = 0.3
         self.interdecl_gap: float = 12
+        self.indent_level_step: int = 0
 
         self.x: float
         self.y: float
         self.max_x: float
         self.base_x: float
+        self.indent_level: int
 
     @property
     def w(self) -> int:
@@ -91,6 +93,7 @@ class Editor:
         self.y = 0
         self.max_x = 0
         self.base_x = 0
+        self.indent_level = 0
 
         for decl in self.prj.decls:
             if not self.is_decl_visible(decl):
@@ -98,8 +101,9 @@ class Editor:
 
             self.decl(decl)
             # flushing last line
-            self.carry()
+            self.flat_carry()
 
+            self.indent_level = 0
             self.base_x = self.max_x + self.adjust(self.interdecl_gap)
             self.x = self.base_x
             self.y = 0
@@ -113,51 +117,50 @@ class Editor:
         
         match decl.value:
             case FnNode():
-                fn = self.fn_node
+                self.fn_node(decl.value)
 
             case _:
                 raise NotImplementedError(decl.value.__class__)
-        
-        fn(decl.value)
 
     def adjust(self, length: float) -> float:
-        return self.text_size * length
+        return self.font_h_to_w_ratio * self.text_size * length
     
     def gap(self, length: float) -> None:
         self.x += self.adjust(length)
 
     def fn_node(self, fn: FnNode) -> None:
-        left_indent = self.x
-        name_y = self.y
-
+        self.indent()
+        self.icarry()
+        
         for p in fn.ins:
-            self.pipewire()
+            self.wire("| ")
             self.text(p.name, self.txt)
             self.typing_note_wire()
             self.typing(p.typing)
 
-            self.carry_at(left_indent)
+            self.icarry()
         
         for o in fn.outs:
-            self.cursorwire()
+            self.wire("> ")
             self.text(o.name, self.txt)
             self.typing_note_wire()
             self.typing(o.typing)
 
-            self.carry_at(left_indent)
+            self.icarry()
 
-        self.carry()
-        self.carry()
+        self.unindent()
+        self.flat_carry()
+        self.flat_carry()
 
         #self.vborderwire(name_y + self.text_size + self.adjust(self.interline_gap))
         self.vborderwire(self.y + self.adjust(1 + self.interline_gap) * 2 - self.adjust(self.interline_gap))
         self.one()
         self.one()
         self.text("print", self.txt)
-        self.text("(", self.wire)
+        self.text("(", self.text_wire)
         self.text('"Hello World!"', self.lit)
-        self.text(")", self.wire)
-        self.carry()
+        self.text(")", self.text_wire)
+        self.icarry()
         self.one()
         self.one()
         self.text("return", self.kw)
@@ -174,7 +177,7 @@ class Editor:
         return max_x
 
     def typing_note_wire(self) -> None:
-        self.text(": ", self.wire)
+        self.text(": ", self.text_wire)
 
     def typing(self, t: TypeNode) -> None:
         match t:
@@ -183,22 +186,18 @@ class Editor:
             
             case _:
                 raise NotImplementedError(t.__class__)
-
-    def cursorwire(self) -> None:
-        self.text(" > ", self.wire)
     
     def hborderwire(self, end_x: float) -> None:
-        self.carry()
+        self.flat_carry()
         pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(0.05), self.nontext_wire)
-        self.carry()
+        self.flat_carry()
     
     def vborderwire(self, end_y: float) -> None:
         x_padding = self.adjust(0.1)
         pr.draw_line_ex((x_padding + self.x, self.y), (x_padding + self.x, end_y), self.adjust(0.05), self.nontext_wire)
 
-    def pipewire(self, side_gap: bool = True) -> None:
-        s = " | " if side_gap else "|"
-        self.text(s, self.wire)
+    def wire(self, txt: str) -> None:
+        self.text(txt, self.text_wire)
 
     def is_mouse_over_box(self, pos: pr.Vector2, side_size: float) -> bool:
         m = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -209,16 +208,26 @@ class Editor:
             m.y >= pos.y and m.y <= pos.y + side_size
         )
     
-    def carry(self) -> None:
+    def flat_carry(self) -> None:
         if self.x > self.max_x:
             self.max_x = self.x
         
         self.x = self.base_x
         self.y += self.text_size + self.adjust(self.interline_gap)
     
+    def icarry(self) -> None:
+        self.flat_carry()
+        self.x += self.adjust(self.indent_level)
+    
     def carry_at(self, desired_x: float) -> None:
-        self.carry()
+        self.flat_carry()
         self.x = desired_x
+    
+    def indent(self) -> None:
+        self.indent_level += self.indent_level_step
+
+    def unindent(self) -> None:
+        self.indent_level -= self.indent_level_step
     
     def text(self, text: str, color: pr.Color) -> None:
         pr.draw_text_ex(
@@ -341,6 +350,9 @@ class Editor:
 
         self.gui_font_size: int = 20
         self.gui_font: pr.Font = self.code_font.fonts[self.code_font.get_best_font_from_size(self.gui_font_size)]
+
+        m = pr.measure_text_ex(self.code_font.cur_font, " ", self.text_size, 1)
+        self.font_h_to_w_ratio = m.x / m.y
 
         self.prj: Project = Project("res/my_project.mpt")
         self.prj.load()
