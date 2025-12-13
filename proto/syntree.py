@@ -19,36 +19,71 @@ class Node:
         self.nid: int = next_nid()
 
 @dataclass
-class DeclNode:
+class DeclNode(Node):
     name: str
     value: Node
+    doc: str = ""
 
 # --
-
-@dataclass
-class TypeNode(Node):
-    pass
-
-@dataclass
-class PrimitiveTypeNode(TypeNode):
-    kind: str
 
 @dataclass
 class StmtNode(Node):
     pass
 
 @dataclass
+class ExprNode(Node):
+    pass
+
+@dataclass
+class CallNode(StmtNode):
+    callee: ExprNode
+    ins: list[ExprNode]
+    outs: list[str]
+
+@dataclass
+class IdentNode(ExprNode):
+    name: str
+
+@dataclass
+class LitNode(ExprNode):
+    value: object
+
+@dataclass
+class LitChrNode(LitNode):
+    pass
+
+@dataclass
+class BinaryNode(ExprNode):
+    l: ExprNode
+    op: str
+    r: ExprNode
+
+@dataclass
 class IncomeNode:
     name: str
-    typing: TypeNode
+    typing: ExprNode
 
 @dataclass
 class OutcomeNode:
     name: str
-    typing: TypeNode
+    typing: ExprNode
 
 @dataclass
 class FnNode(Node):
     ins: list[IncomeNode]
     outs: list[OutcomeNode]
+    body: list[StmtNode]
+
+@dataclass
+class AssignNode(StmtNode):
+    assignee: ExprNode
+    assigner: ExprNode
+
+@dataclass
+class ReturnNode(StmtNode):
+    pass
+
+@dataclass
+class IfNode(StmtNode):
+    expr: ExprNode
     body: list[StmtNode]

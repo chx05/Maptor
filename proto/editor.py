@@ -6,17 +6,22 @@ from time import time
 from project import Project
 from syntree import *
 
+FLOW_STOP_STMT_NODES = [
+    ReturnNode,
+    IfNode
+]
+
 class Editor:
     def __init__(self) -> None:
         self.bg = pr.Color(244, 245, 248, 255)
-        self.fg = pr.Color(230, 109, 103, 255)
-        self.txt = pr.Color(11, 10, 7, 255)
-        self.text_wire = pr.color_alpha(self.txt, 0.3)
-        self.nontext_wire = pr.color_alpha(self.text_wire, 0.15)
-        self.dbg_gui_txt = pr.color_alpha(self.txt, 0.4)
-        self.kw = pr.Color(232, 60, 145, 255)
-        self.lit = pr.Color(98, 129, 65, 255)
-        self.dot = pr.Color(0, 166, 251, 255)
+        self.tc_typing = pr.Color(241, 162, 8, 255)
+        self.tc_normal = pr.Color(11, 10, 7, 255)
+        self.tc_wire = pr.color_alpha(self.tc_normal, 0.3)
+        self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
+        self.tc_dbg_gui = pr.color_alpha(self.tc_normal, 0.4)
+        self.tc_kw = pr.Color(216, 49, 91, 255)
+        self.tc_lit = pr.Color(6, 167, 125, 255)
+        self.tc_fn_name = pr.Color(130, 106, 237, 255)
 
         self.is_running: bool = True
 
@@ -24,15 +29,19 @@ class Editor:
         self.logs: list[tuple[str, float]] = []
 
         self.gui_padding: int = 20
-        self.interline_gap: float = 0.5
-        self.interdecl_gap: float = 15
-        self.indent_level_step: int = 2
+        self.interline_gap: float = 0.25
+        self.interdecl_gap: float = 25
+        self.indent_level_step: float = 0.5
+        self.fn_call_par_gap: float = 0.25
+        self.stmt_side_padding: float = 2
+        self.codewire_left_padding: float = 0.5
+        self.shapewire_thick: float = 0.2
 
         self.x: float
         self.y: float
         self.max_x: float
         self.base_x: float
-        self.indent_level: int
+        self.indent_level: float
 
     @property
     def w(self) -> int:
@@ -113,7 +122,11 @@ class Editor:
         return True
     
     def decl(self, decl: DeclNode) -> None:
-        self.text(decl.name, self.txt)
+        if decl.doc != "":
+            self.doc(decl.doc)
+        
+        self.flat_carry()
+        self.text(decl.name, self.tc_fn_name)
         
         match decl.value:
             case FnNode():
@@ -122,17 +135,32 @@ class Editor:
             case _:
                 raise NotImplementedError(decl.value.__class__)
 
+    def doc(self, s: str) -> None:
+        lines = s.split("\n")
+        height = self.vadjust(1) * len(lines) + self.vadjust(self.interline_gap) * (len(lines)-1)
+        self.y -= height
+        self.codewire(self.y + height)
+        
+        self.stmt_left_pad()
+        
+        for i, l in enumerate(lines):
+            self.text(l, self.tc_wire)
+            if i != len(lines) - 1:
+                self.flat_carry()
+        
+        self.stmt_left_unpad()
+
     def adjust(self, length: float) -> float:
-        return self.font_h_to_w_ratio * self.text_size * length
+        return self.font_h_to_w_ratio * self.vadjust(length)
     
-    def hadjust(self, height: float) -> float:
+    def vadjust(self, height: float) -> float:
         return self.text_size * height
     
     def gap(self, length: float) -> None:
         self.x += self.adjust(length)
 
     def fn_node_head(self, fn: FnNode) -> None:
-        self.gap(0.25)
+        self.gap(self.fn_call_par_gap)
         self.wire("(")
 
         if len(fn.ins) + len(fn.outs) == 0:
@@ -141,52 +169,146 @@ class Editor:
             self.flat_carry()
             return
 
-        self.indent()
+        param_left_padding = 2
+        self.indent(param_left_padding)
         self.icarry()
         
         for p in fn.ins:
-            self.text(p.name, self.txt)
+            self.text(p.name, self.tc_normal)
             self.typing_note_wire()
             self.typing(p.typing)
 
             self.icarry()
         
         for o in fn.outs:
-            self.text("out", self.kw)
+            self.text("out", self.tc_kw)
             self.one()
-            self.text(o.name, self.txt)
+            self.text(o.name, self.tc_normal)
             self.typing_note_wire()
             self.typing(o.typing)
 
             self.icarry()
 
-        self.x -= self.adjust(self.indent_level)
+        self.unindent(param_left_padding)
         self.wire(")")
 
-        self.unindent()
         self.flat_carry()
         self.flat_carry()
 
     def fn_node(self, fn: FnNode) -> None:
         self.fn_node_head(fn)
-
-        self.vborderwire(self.y + self.hadjust(self.interline_gap) * 2 - self.hadjust(self.interline_gap) + self.hadjust(2))
-        self.one()
-        self.one()
-        self.text("print", self.txt)
-        self.gap(0.25)
-        self.wire("(")
-        self.text('"Hello World!"', self.lit)
-        self.wire(")")
-        self.icarry()
-        self.one()
-        self.one()
-        self.text("return", self.kw)
-        self.one()
-        self.text("10", self.lit)
+        self.body(fn.body)
     
+    def body(self, sts: list[StmtNode]) -> None:
+        if len(sts) == 0:
+            return
+
+        for i, s in enumerate(sts):
+            is_last = i == len(sts) - 1
+            self.codewire_auto(s, is_last)
+            
+            self.stmt_left_pad()
+            self.stmt(s)
+            self.stmt_left_unpad()
+            self.icarry()
+
+    def codewire_auto(self, s: StmtNode, is_last: bool) -> None:
+        if is_last:
+            wire_len = 1
+        else:
+            wire_len = 1 + self.interline_gap
+        
+        if s.__class__ in FLOW_STOP_STMT_NODES:
+            self.codewire_flowstop(wire_len)
+        else:
+            self.codewire(self.y + self.vadjust(wire_len))
+
+    def codewire_flowstop(self, wire_len) -> None:
+        y_end = self.y + self.vadjust(wire_len)/2
+        self.codewire(y_end)
+        left_padding = self.adjust(self.codewire_left_padding)
+        pr.draw_line_ex(
+            (left_padding + self.x, y_end),
+            (left_padding + self.x + self.adjust(0.75), y_end),
+            self.adjust(self.shapewire_thick),
+            self.tc_shapewire)
+
+    def stmt_left_pad(self):
+        self.indent(self.stmt_side_padding)
+        
+    def stmt_left_unpad(self) -> None:
+        self.unindent(self.stmt_side_padding)
+
+    def stmt(self, s: StmtNode) -> None:
+        match s:
+            case ReturnNode():
+                self.text("return", self.tc_kw)
+            
+            case CallNode():
+                assert isinstance(s.callee, IdentNode)
+                assert len(s.ins) <= 1
+                assert len(s.outs) == 0
+
+                self.text(s.callee.name, self.tc_fn_name)
+                self.gap(self.fn_call_par_gap)
+                self.wire("(")
+                if len(s.ins) > 0:
+                    self.expr(s.ins[0])
+                self.wire(")")
+            
+            case IfNode():
+                self.text("if", self.tc_kw)
+                self.one()
+                self.expr(s.expr)
+                self.stmt_indent()
+                self.icarry()
+                self.body(s.body)
+                self.stmt_unindent()
+            
+            case AssignNode():
+                self.expr(s.assignee)
+                self.one()
+                self.text("=", self.tc_kw)
+                self.one()
+                self.expr(s.assigner)
+
+            case _:
+                raise NotImplementedError(s.__class__)
+
+    def expr(self, e: ExprNode) -> None:
+        match e:
+            case IdentNode():
+                self.text(e.name, self.tc_normal)
+            
+            case LitChrNode():
+                assert isinstance(e.value, str)
+                self.text("'" + repr('"' + e.value).removeprefix("'\""), self.tc_lit)
+
+            case LitNode():
+                match e.value:
+                    case None:
+                        self.text("null", self.tc_lit)
+                    case bool():
+                        self.text("true" if e.value else "false", self.tc_lit)
+                    case str():
+                        self.text('"' + repr("'" + e.value).removeprefix('"\''), self.tc_lit)
+                    case _:
+                        self.text(repr(e.value), self.tc_lit)
+            
+            case BinaryNode():
+                # TODO add parenthesis when exprs must have implicit precedence
+                # or maybe just add EnclosedNode
+                self.expr(e.l)
+                self.one()
+                self.text(e.op, self.tc_kw)
+                self.one()
+                self.expr(e.r)
+
+            case _:
+                raise NotImplementedError(e.__class__)
+
     def one(self, n: int = 1) -> None:
-        self.text(" " * n, self.txt)
+        self.text(" " * n, self.tc_normal)
 
     def update_xmax(self, max_x: float) -> float:
         if self.x > max_x:
@@ -195,27 +317,27 @@ class Editor:
         return max_x
 
     def typing_note_wire(self) -> None:
-        self.text(": ", self.text_wire)
+        self.text(": ", self.tc_wire)
 
-    def typing(self, t: TypeNode) -> None:
+    def typing(self, t: ExprNode) -> None:
         match t:
-            case PrimitiveTypeNode():
-                self.text(t.kind, self.fg)
+            case IdentNode():
+                self.text(t.name, self.tc_typing)
             
             case _:
                 raise NotImplementedError(t.__class__)
     
-    def hborderwire(self, end_x: float) -> None:
+    def borderwire(self, end_x: float) -> None:
         self.flat_carry()
-        pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(0.2), self.nontext_wire)
+        pr.draw_line_ex((self.x, self.y), (end_x, self.y), self.adjust(self.shapewire_thick), self.tc_shapewire)
         self.flat_carry()
     
-    def vborderwire(self, end_y: float) -> None:
-        x_padding = self.adjust(0.5)
-        pr.draw_line_ex((x_padding + self.x, self.y), (x_padding + self.x, end_y), self.adjust(0.2), self.nontext_wire)
+    def codewire(self, end_y: float) -> None:
+        left_padding = self.adjust(self.codewire_left_padding)
+        pr.draw_line_ex((left_padding + self.x, self.y), (left_padding + self.x, end_y), self.adjust(self.shapewire_thick), self.tc_shapewire)
 
     def wire(self, txt: str) -> None:
-        self.text(txt, self.text_wire)
+        self.text(txt, self.tc_wire)
 
     def is_mouse_over_box(self, pos: pr.Vector2, side_size: float) -> bool:
         m = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -231,7 +353,7 @@ class Editor:
             self.max_x = self.x
         
         self.x = self.base_x
-        self.y += self.text_size + self.hadjust(self.interline_gap)
+        self.y += self.text_size + self.vadjust(self.interline_gap)
     
     def icarry(self) -> None:
         self.flat_carry()
@@ -241,11 +363,18 @@ class Editor:
         self.flat_carry()
         self.x = desired_x
     
-    def indent(self) -> None:
-        self.indent_level += self.indent_level_step
+    def indent(self, length: float, sign: int = +1) -> None:
+        self.base_x += sign*self.adjust(length)
+        self.x += sign*self.adjust(length)
 
-    def unindent(self) -> None:
-        self.indent_level -= self.indent_level_step
+    def unindent(self, length: float) -> None:
+        self.indent(length, -1)
+    
+    def stmt_indent(self) -> None:
+        self.indent(self.indent_level_step)
+
+    def stmt_unindent(self) -> None:
+        self.unindent(self.indent_level_step)
     
     def text(self, text: str, color: pr.Color) -> None:
         pr.draw_text_ex(
@@ -275,7 +404,7 @@ class Editor:
             (self.gui_padding, self.gui_padding),
             self.gui_font_size,
             1,
-            self.dbg_gui_txt
+            self.tc_dbg_gui
         )
     
     def display_logs(self) -> None:
@@ -292,7 +421,7 @@ class Editor:
                 self.gui_font_size,
                 1,
                 pr.color_alpha(
-                    self.dbg_gui_txt,
+                    self.tc_dbg_gui,
                     1 - i / len(self.logs)
                 )
             )
