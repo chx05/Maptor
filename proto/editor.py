@@ -24,6 +24,7 @@ class Editor:
         self.tc_fn_name = pr.Color(130, 106, 237, 255)
 
         self.is_running: bool = True
+        self.parallel_view_mode: bool = False
 
         # msg + time of logging, in seconds
         self.logs: list[tuple[str, float]] = []
@@ -124,8 +125,8 @@ class Editor:
     def decl(self, decl: DeclNode) -> None:
         if decl.doc != "":
             self.doc(decl.doc)
+            self.flat_carry()
         
-        self.flat_carry()
         self.text(decl.name, self.tc_fn_name)
         
         match decl.value:
@@ -144,8 +145,17 @@ class Editor:
         self.stmt_left_pad()
         
         for i, l in enumerate(lines):
-            self.text(l, self.tc_wire)
-            if i != len(lines) - 1:
+            is_last_line = i != len(lines) - 1
+
+            pieces = l.split("`")
+            for j, p in enumerate(pieces):
+                is_highlighted_piece = j % 2 == 1
+                if is_highlighted_piece:
+                    self.text(p, pr.color_alpha(self.tc_wire, 0.65))
+                else:
+                    self.text(p, self.tc_wire)
+
+            if is_last_line:
                 self.flat_carry()
         
         self.stmt_left_unpad()
@@ -213,15 +223,10 @@ class Editor:
             self.icarry()
 
     def codewire_auto(self, s: StmtNode, is_last: bool) -> None:
-        if is_last:
-            wire_len = 1
+        if is_last or hasattr(s, "body"):
+            self.codewire_flowstop(1)
         else:
-            wire_len = 1 + self.interline_gap
-        
-        if s.__class__ in FLOW_STOP_STMT_NODES:
-            self.codewire_flowstop(wire_len)
-        else:
-            self.codewire(self.y + self.vadjust(wire_len))
+            self.codewire(self.y + self.vadjust(1 + self.interline_gap))
 
     def codewire_flowstop(self, wire_len) -> None:
         y_end = self.y + self.vadjust(wire_len)/2
@@ -260,10 +265,36 @@ class Editor:
                 self.text("if", self.tc_kw)
                 self.one()
                 self.expr(s.expr)
-                self.stmt_indent()
+                self.scope_indent()
                 self.icarry()
                 self.body(s.body)
-                self.stmt_unindent()
+                self.scope_unindent()
+            
+            case ElseNode():
+                if self.parallel_view_mode:
+                    old = self.max_x
+                    self.max_x = self.x
+                    old_y = self.y
+                    self.stmt(s.ifnode)
+                    self.flat_carry()
+                    old_base_x = self.base_x
+                    self.base_x = self.max_x + self.adjust(5)
+                    self.x = self.base_x
+                    self.y = old_y
+                    self.max_x = old
+                    self.text("else", self.tc_kw)
+                    self.scope_indent()
+                    self.icarry()
+                    self.body(s.body)
+                    self.scope_unindent()
+                    self.base_x = old_base_x
+                else:
+                    self.stmt(s.ifnode)
+                    self.text("else", self.tc_kw)
+                    self.scope_indent()
+                    self.icarry()
+                    self.body(s.body)
+                    self.scope_unindent()
             
             case AssignNode():
                 self.expr(s.assignee)
@@ -370,10 +401,10 @@ class Editor:
     def unindent(self, length: float) -> None:
         self.indent(length, -1)
     
-    def stmt_indent(self) -> None:
+    def scope_indent(self) -> None:
         self.indent(self.indent_level_step)
 
-    def stmt_unindent(self) -> None:
+    def scope_unindent(self) -> None:
         self.unindent(self.indent_level_step)
     
     def text(self, text: str, color: pr.Color) -> None:
@@ -462,6 +493,9 @@ class Editor:
             self.text_size += mouse_scroll
             self.cap_text_size()
             self.refresh_code_font()
+        
+        if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
+            self.parallel_view_mode = not self.parallel_view_mode
     
     def cap_text_size(self) -> None:
         val = self.text_size

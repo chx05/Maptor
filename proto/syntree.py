@@ -87,3 +87,8 @@ class ReturnNode(StmtNode):
 class IfNode(StmtNode):
     expr: ExprNode
     body: list[StmtNode]
+
+@dataclass
+class ElseNode(StmtNode):
+    ifnode: IfNode
+    body: list[StmtNode]

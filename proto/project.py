@@ -25,23 +25,32 @@ class Project:
                 outs=[OutcomeNode("sum", t_i32)],
                 body=[AssignNode(IdentNode("sum"), BinaryNode(IdentNode("a"), "+", IdentNode("b")))]
             )),
-            DeclNode(name="split", value=FnNode(
-                ins=[
-                    IncomeNode("src", t_str),
-                    IncomeNode("sep", t_chr)
-                ],
-                outs=[OutcomeNode("l", t_str), OutcomeNode("r", t_str)],
-                body=[
-                    IfNode(BinaryNode(IdentNode("src"), "=", LitNode(None)), body=[
-                        CallNode(IdentNode("print"), [LitNode("Blocking: `src` param is null")], []),
-                        ReturnNode()
-                    ]),
-                    IfNode(BinaryNode(IdentNode("sep"), "=", LitChrNode(' ')), body=[
-                        CallNode(IdentNode("print"), [LitNode("Alert: `sep` param is space")], []),
-                    ]),
-                    CallNode(IdentNode("print"), [LitNode("All ok")], [])
-                ]
-            ))
+            DeclNode(
+                name="split",
+                doc="Divides `src` into `l` and `r` as it finds the first `sep`,\nif `sep` not found, `r` is null,\nif `sep` is first char, `l` is null.\nYou can call `split` further on `r` to divide the second `sep` avaialable in `src`.",
+                value=FnNode(
+                    ins=[
+                        IncomeNode("src", t_str),
+                        IncomeNode("sep", t_chr)
+                    ],
+                    outs=[OutcomeNode("l", t_str), OutcomeNode("r", t_str)],
+                    body=[
+                        IfNode(BinaryNode(IdentNode("src"), "=", LitNode(None)), body=[
+                            CallNode(IdentNode("print"), [LitNode("Blocking: `src` param is null")], []),
+                            ReturnNode()
+                        ]),
+                        ElseNode(
+                            ifnode=IfNode(BinaryNode(IdentNode("sep"), "=", LitChrNode(' ')), body=[
+                                CallNode(IdentNode("print"), [LitNode("Alert: `sep` param is space")], []),
+                            ]),
+                            body=[CallNode(IdentNode("print"), [LitNode("Info: `sep` param is not a space")], []),]
+                        ),
+                        AssignNode(IdentNode("l"), LitNode(None)),
+                        AssignNode(IdentNode("r"), LitNode(None)),
+                        CallNode(IdentNode("print"), [LitNode("All ok")], [])
+                    ]
+                )
+            )
         ]
     
     def load(self) -> None:
