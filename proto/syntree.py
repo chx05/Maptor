@@ -59,12 +59,12 @@ class BinaryNode(ExprNode):
     r: ExprNode
 
 @dataclass
-class IncomeNode:
+class IncomeNode(Node):
     name: str
     typing: ExprNode
 
 @dataclass
-class OutcomeNode:
+class OutcomeNode(Node):
     name: str
     typing: ExprNode
 

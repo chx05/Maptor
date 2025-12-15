@@ -15,3 +15,4 @@ A bunch of ideas related to the editor
 - Mark meta definitions as "persistent" or "dynamic" (or similar names) that basically tells the map engine to reexecute them every time they are used/instantiated (even if used with same parameters of a previous use) or just cache their result for the same parameters. Dynamic meta symbols can access to caller context and meta stuff
 - unit testing codepath coverage
 - implement a core/base isolation mechanism for code. Core can't allocate memory and doesn't work directly on data but rather on inputs that behave in a required way. The base can provide a canonical data layout and initialization/deinitialization
+- the codewire should be of different color if the branch stops the execution with an early return/continue or a break

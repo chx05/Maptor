@@ -1,14 +1,15 @@
 import pyray as pr
 import utils
+import string
 
 from multi_sized_font import MultiSizedFont
 from time import time
 from project import Project
 from syntree import *
+from editable import *
 
-FLOW_STOP_STMT_NODES = [
-    ReturnNode,
-    IfNode
+PRIMITIVE_IDENTS = [
+    "i32", "str"
 ]
 
 class Editor:
@@ -25,9 +26,9 @@ class Editor:
 
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
+        self.editables: dict[int, Editable] = {}
 
-        # msg + time of logging, in seconds
-        self.logs: list[tuple[str, float]] = []
+        self.logs: dict[str, str] = {}
 
         self.gui_padding: int = 20
         self.interline_gap: float = 0.25
@@ -81,13 +82,14 @@ class Editor:
         self.load_stuff()
         
         while self.is_running:
-            self.inputs()
 
             pr.begin_drawing()
             pr.clear_background(self.bg)
 
             pr.begin_mode_2d(self.cam)
             self.canvas()
+            self.handle_editables()
+            self.inputs()
             pr.end_mode_2d()
             
             self.gui()
@@ -97,6 +99,19 @@ class Editor:
         
         self.unload_stuff()
         pr.close_window()
+
+    def handle_editables(self) -> None:
+        mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
+        
+        for e in self.editables.values():
+            bounding_box = pr.Rectangle(
+                e.x, e.y,
+                self.adjust(e.content_len() * 1.1),
+                self.text_size)
+            
+            hover = pr.check_collision_point_rec(mouse_pos, bounding_box)
+            if hover:
+                pr.draw_rectangle_rec(bounding_box, self.tc_shapewire)
 
     def canvas(self) -> None:
         self.x = 0
@@ -127,7 +142,7 @@ class Editor:
             self.doc(decl.doc)
             self.flat_carry()
         
-        self.text(decl.name, self.tc_fn_name)
+        self.editable(decl, "name", self.tc_fn_name)
         
         match decl.value:
             case FnNode():
@@ -184,18 +199,18 @@ class Editor:
         self.icarry()
         
         for p in fn.ins:
-            self.text(p.name, self.tc_normal)
+            self.editable(p, "name", self.tc_normal)
             self.typing_note_wire()
-            self.typing(p.typing)
+            self.expr(p.typing)
 
             self.icarry()
         
         for o in fn.outs:
             self.text("out", self.tc_kw)
             self.one()
-            self.text(o.name, self.tc_normal)
+            self.editable(o, "name", self.tc_normal)
             self.typing_note_wire()
-            self.typing(o.typing)
+            self.expr(o.typing)
 
             self.icarry()
 
@@ -254,7 +269,7 @@ class Editor:
                 assert len(s.ins) <= 1
                 assert len(s.outs) == 0
 
-                self.text(s.callee.name, self.tc_fn_name)
+                self.editable(s.callee, "name", self.tc_fn_name)
                 self.gap(self.fn_call_par_gap)
                 self.wire("(")
                 if len(s.ins) > 0:
@@ -309,7 +324,11 @@ class Editor:
     def expr(self, e: ExprNode) -> None:
         match e:
             case IdentNode():
-                self.text(e.name, self.tc_normal)
+                starts_with_capital = e.name[0] in string.ascii_uppercase
+                if starts_with_capital or e.name in PRIMITIVE_IDENTS:
+                    self.editable(e, 'name', self.tc_typing)
+                else:
+                    self.editable(e, 'name', self.tc_normal)
             
             case LitChrNode():
                 assert isinstance(e.value, str)
@@ -349,14 +368,6 @@ class Editor:
 
     def typing_note_wire(self) -> None:
         self.text(": ", self.tc_wire)
-
-    def typing(self, t: ExprNode) -> None:
-        match t:
-            case IdentNode():
-                self.text(t.name, self.tc_typing)
-            
-            case _:
-                raise NotImplementedError(t.__class__)
     
     def borderwire(self, end_x: float) -> None:
         self.flat_carry()
@@ -370,15 +381,6 @@ class Editor:
     def wire(self, txt: str) -> None:
         self.text(txt, self.tc_wire)
 
-    def is_mouse_over_box(self, pos: pr.Vector2, side_size: float) -> bool:
-        m = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
-        self.log(f"m: {m.x},{m.y} | pos: {pos.x},{pos.y}")
-        return (
-            m.x >= pos.x and m.x <= pos.x + side_size
-            and
-            m.y >= pos.y and m.y <= pos.y + side_size
-        )
-    
     def flat_carry(self) -> None:
         if self.x > self.max_x:
             self.max_x = self.x
@@ -422,6 +424,12 @@ class Editor:
         )
 
         self.x += m.x
+    
+    def editable(self, node: Node, field_name: str, color: pr.Color) -> None:
+        start_x = self.x
+        start_y = self.y
+        self.text(getattr(node, field_name), color)
+        self.editables[node.nid] = Editable(node, field_name, start_x, start_y)
 
     def gui(self) -> None:
         self.display_fps()
@@ -439,35 +447,24 @@ class Editor:
         )
     
     def display_logs(self) -> None:
-        for i, (msg, _) in enumerate(reversed(self.logs)):
-            measure = pr.measure_text_ex(self.gui_font, msg, self.gui_font_size, 1)
+        for i, (tag, msg) in enumerate(self.logs.items()):
+            content = f"{tag}: {msg}"
+            measure = pr.measure_text_ex(self.gui_font, content, self.gui_font_size, 1)
 
             pr.draw_text_ex(
                 self.gui_font,
-                msg,
+                content,
                 (
                     self.w - measure.x - self.gui_padding,
                     self.gui_padding + (measure.y + self.gui_padding) * i
                 ),
                 self.gui_font_size,
                 1,
-                pr.color_alpha(
-                    self.tc_dbg_gui,
-                    1 - i / len(self.logs)
-                )
+                self.tc_dbg_gui
             )
 
-        # i remove all the old messages (they expire after N seconds)
-        expiration_time = 5
-        t = time()
-        self.logs = list(filter(lambda l: t < l[1] + expiration_time, self.logs))
-
-    def log(self, msg: str) -> None:
-        max_capacity = 10
-        if len(self.logs) >= max_capacity:
-            self.logs.pop(0)
-
-        self.logs.append((msg, time()))
+    def log(self, tag: str, msg: str) -> None:
+        self.logs[tag] = msg
 
     def inputs(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
@@ -490,9 +487,22 @@ class Editor:
             mouse_scroll = -self.code_font.step
 
         if mouse_scroll != 0:
+            world_mouse_x = self.cam.target.x
+            world_mouse_y = self.cam.target.y
+
+            anchor_x = world_mouse_x / self.text_size
+            anchor_y = world_mouse_y / self.text_size
+
             self.text_size += mouse_scroll
             self.cap_text_size()
             self.refresh_code_font()
+
+            # moving camera to anchor point (center of viewport)
+            new_world_mouse_x = anchor_x * self.text_size
+            new_world_mouse_y = anchor_y * self.text_size
+            self.cam.target.x = new_world_mouse_x
+            self.cam.target.y = new_world_mouse_y
+
         
         if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             self.parallel_view_mode = not self.parallel_view_mode
@@ -526,7 +536,7 @@ class Editor:
         self.code_font.load("res/hurmit.otf")
         #self.code_font.load("res/agave.ttf")
         #self.code_font.load("res/jetbrains.ttf")
-        self.text_size: float = 30
+        self.text_size: float = 20
         self.refresh_code_font()
 
         self.gui_font_size: int = 20

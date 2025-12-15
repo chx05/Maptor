@@ -2,9 +2,9 @@ from syntree import *
 
 class Project:
     def __init__(self, res_path: str) -> None:
-        t_i32 = IdentNode("i32")
-        t_str = IdentNode("str")
-        t_chr = IdentNode("chr")
+        t_i32 = lambda: IdentNode("i32")
+        t_str = lambda: IdentNode("str")
+        t_chr = lambda: IdentNode("chr")
 
         self.res_path: str = res_path
         self.decls: list[DeclNode] = [
@@ -19,10 +19,10 @@ class Project:
             ),
             DeclNode(name="add", value=FnNode(
                 ins=[
-                    IncomeNode("a", t_i32),
-                    IncomeNode("b", t_i32)
+                    IncomeNode("a", t_i32()),
+                    IncomeNode("b", t_i32())
                 ],
-                outs=[OutcomeNode("sum", t_i32)],
+                outs=[OutcomeNode("sum", t_i32())],
                 body=[AssignNode(IdentNode("sum"), BinaryNode(IdentNode("a"), "+", IdentNode("b")))]
             )),
             DeclNode(
@@ -30,10 +30,10 @@ class Project:
                 doc="Divides `src` into `l` and `r` as it finds the first `sep`,\nif `sep` not found, `r` is null,\nif `sep` is first char, `l` is null.\nYou can call `split` further on `r` to divide the second `sep` avaialable in `src`.",
                 value=FnNode(
                     ins=[
-                        IncomeNode("src", t_str),
-                        IncomeNode("sep", t_chr)
+                        IncomeNode("src", t_str()),
+                        IncomeNode("sep", t_chr())
                     ],
-                    outs=[OutcomeNode("l", t_str), OutcomeNode("r", t_str)],
+                    outs=[OutcomeNode("l", t_str()), OutcomeNode("r", t_str())],
                     body=[
                         IfNode(BinaryNode(IdentNode("src"), "=", LitNode(None)), body=[
                             CallNode(IdentNode("print"), [LitNode("Blocking: `src` param is null")], []),
