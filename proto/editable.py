@@ -10,6 +10,9 @@ class Editable:
 
     def content(self) -> str:
         return getattr(self.node, self.field_name)
+    
+    def set_content(self, content: str):
+        setattr(self.node, self.field_name, content)
 
     def content_len(self) -> int:
         return len(self.content())

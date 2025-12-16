@@ -2,8 +2,8 @@ import pyray as pr
 import utils
 import string
 
+from typing import cast
 from multi_sized_font import MultiSizedFont
-from time import time
 from project import Project
 from syntree import *
 from editable import *
@@ -12,10 +12,12 @@ PRIMITIVE_IDENTS = [
     "i32", "str", "chr"
 ]
 
+WRITABLES = string.digits + string.ascii_letters + string.punctuation
+
 class Editor:
     def __init__(self) -> None:
         self.bg = pr.Color(244, 245, 248, 255)
-        self.tc_typing = pr.Color(241, 162, 8, 255)
+        self.tc_typing = pr.Color(139, 38, 53, 255)
         self.tc_normal = pr.Color(11, 10, 7, 255)
         self.tc_wire = pr.color_alpha(self.tc_normal, 0.3)
         self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
@@ -23,12 +25,16 @@ class Editor:
         self.tc_kw = pr.Color(216, 49, 91, 255)
         self.tc_lit = pr.Color(6, 167, 125, 255)
         self.tc_fn_name = pr.Color(130, 106, 237, 255)
+        self.tc_cursor = pr.Color(0, 71, 119, 255)
 
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
         self.editables: dict[int, Editable] = {}
         # original_base_x, original_y, previous_max_x, final_y
         self.parallel_contexts: list[tuple[float, float, float, float]] = []
+        # nid
+        self.under_edit: int | None = None
+        self.under_edit_cursor_idx: int = 0
 
         self.logs: dict[str, str] = {}
 
@@ -78,19 +84,20 @@ class Editor:
 
     def launch(self) -> None:
         pr.init_window(0, 0, "Maptor [proto | beta]")
+        pr.set_exit_key(pr.KeyboardKey.KEY_NULL)
         pr.toggle_fullscreen()
-        pr.set_target_fps(pr.get_monitor_refresh_rate(pr.get_current_monitor()))
+        #pr.set_target_fps(pr.get_monitor_refresh_rate(pr.get_current_monitor()))
         
         self.load_stuff()
         
         while self.is_running:
-
             pr.begin_drawing()
             pr.clear_background(self.bg)
 
             pr.begin_mode_2d(self.cam)
             self.canvas()
             self.handle_editables()
+            self.render_cursor()
             self.inputs()
             pr.end_mode_2d()
             
@@ -104,16 +111,35 @@ class Editor:
 
     def handle_editables(self) -> None:
         mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
+        mouse_click = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)
         
-        for e in self.editables.values():
+        for nid, e in self.editables.items():
             bounding_box = pr.Rectangle(
                 e.x, e.y,
-                self.adjust(e.content_len() * 1.1),
+                self.adjust(e.content_len()),
                 self.text_size)
             
             hover = pr.check_collision_point_rec(mouse_pos, bounding_box)
             if hover:
                 pr.draw_rectangle_rec(bounding_box, self.tc_shapewire)
+
+                if mouse_click:
+                    self.under_edit = nid
+                    self.under_edit_cursor_idx = e.content_len()
+
+    def render_cursor(self) -> None:
+        if self.under_edit == None:
+            return
+        
+        editable = self.editables[self.under_edit]
+        cursor_x_pos = editable.x + self.adjust(self.under_edit_cursor_idx)
+        cusor = pr.Rectangle(
+            cursor_x_pos, editable.y,
+            self.adjust(0.2), self.text_size
+        )
+
+        pr.draw_rectangle_rec(cusor, self.tc_cursor)
+        self.log("cursor_x_pos", str(cursor_x_pos))
 
     def canvas(self) -> None:
         self.x = 0
@@ -178,7 +204,8 @@ class Editor:
         self.stmt_left_unpad()
 
     def adjust(self, length: float) -> float:
-        return self.font_h_to_w_ratio * self.vadjust(length)
+        # +1 and -1 are the spacings, we need length-1 of them (the last char doesn't have right spacing)
+        return (self.code_font.widths[self.code_font.cur_idx] + 1) * length - 1
     
     def vadjust(self, height: float) -> float:
         return self.text_size * height
@@ -460,8 +487,14 @@ class Editor:
     def editable(self, node: Node, field_name: str, color: pr.Color) -> None:
         start_x = self.x
         start_y = self.y
-        self.text(getattr(node, field_name), color)
         self.editables[node.nid] = Editable(node, field_name, start_x, start_y)
+
+        self.text(getattr(node, field_name), color)
+        #txt = cast(str, getattr(node, field_name)).split("_")
+        #for i, t in enumerate(txt):
+        #    self.text(t, color)
+        #    if i != len(txt) - 1:
+        #        self.text("_", self.tc_wire)
 
     def gui(self) -> None:
         self.display_fps()
@@ -495,8 +528,8 @@ class Editor:
                 self.tc_dbg_gui
             )
 
-    def log(self, tag: str, msg: str) -> None:
-        self.logs[tag] = msg
+    def log(self, tag: str, msg: object) -> None:
+        self.logs[tag] = repr(msg)
 
     def inputs(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
@@ -523,6 +556,33 @@ class Editor:
 
         if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             self.parallel_view_mode = not self.parallel_view_mode
+        
+        if self.under_edit != None:
+            e = self.editables[self.under_edit]
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
+                if self.under_edit_cursor_idx > 0:
+                    self.under_edit_cursor_idx -= 1
+
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_RIGHT):
+                if self.under_edit_cursor_idx < e.content_len():
+                    self.under_edit_cursor_idx += 1
+            
+            keychar = chr(pr.get_char_pressed())
+            if keychar in WRITABLES:
+                e.set_content(e.content() + keychar)
+                self.under_edit_cursor_idx += 1
+            
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
+                if ctrl:
+                    e.set_content("")
+                    self.under_edit_cursor_idx = 0 # TODO refactor
+                else:
+                    if self.under_edit_cursor_idx > 0:
+                        e.set_content(e.content()[:-1])
+                        self.under_edit_cursor_idx -= 1
+
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+                self.under_edit = None
 
     def handle_zoom(self, mouse_scroll):
         world_mouse_x = self.cam.target.x

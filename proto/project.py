@@ -17,7 +17,7 @@ class Project:
                     body=[CallNode(IdentNode("print"), [LitNode("hello world!")], []), ReturnNode()]
                 )
             ),
-            DeclNode(name="add", value=FnNode(
+            DeclNode(name="add_two_numbers", value=FnNode(
                 ins=[
                     IncomeNode("a", t_i32()),
                     IncomeNode("b", t_i32())

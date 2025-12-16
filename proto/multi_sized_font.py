@@ -18,6 +18,7 @@ class MultiSizedFont:
 
         self.fonts: list[pr.Font] = []
         self.sizes: list[int] = list(range(self.min_sz, self.max_sz + 1, self.step))
+        self.widths: list[float]
 
         assert len(self.sizes) >= 2
 
@@ -32,6 +33,8 @@ class MultiSizedFont:
             self.fonts.append(
                 pr.load_font_ex(res_path, sz, None, 0)
             )
+        
+        self.widths = [pr.measure_text_ex(f, " ", sz, 0).x for sz, f in zip(self.sizes, self.fonts)]
     
     def unload(self) -> None:
         for f in self.fonts:
