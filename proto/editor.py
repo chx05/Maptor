@@ -9,7 +9,7 @@ from syntree import *
 from editable import *
 
 PRIMITIVE_IDENTS = [
-    "i32", "str"
+    "i32", "str", "chr"
 ]
 
 class Editor:
@@ -27,6 +27,8 @@ class Editor:
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
         self.editables: dict[int, Editable] = {}
+        # original_base_x, original_y, previous_max_x, final_y
+        self.parallel_contexts: list[tuple[float, float, float, float]] = []
 
         self.logs: dict[str, str] = {}
 
@@ -286,30 +288,17 @@ class Editor:
                 self.scope_unindent()
             
             case ElseNode():
-                if self.parallel_view_mode:
-                    old = self.max_x
-                    self.max_x = self.x
-                    old_y = self.y
+                if not self.parallel_view_mode:
                     self.stmt(s.ifnode)
-                    self.flat_carry()
-                    old_base_x = self.base_x
-                    self.base_x = self.max_x + self.adjust(5)
-                    self.x = self.base_x
-                    self.y = old_y
-                    self.max_x = old
-                    self.text("else", self.tc_kw)
-                    self.scope_indent()
-                    self.icarry()
-                    self.body(s.body)
-                    self.scope_unindent()
-                    self.base_x = old_base_x
+                    self.render_else_node_only(s.body)
                 else:
+                    self.begin_parallel()
                     self.stmt(s.ifnode)
-                    self.text("else", self.tc_kw)
-                    self.scope_indent()
-                    self.icarry()
-                    self.body(s.body)
-                    self.scope_unindent()
+
+                    self.new_column()
+
+                    self.render_else_node_only(s.body)
+                    self.end_parallel()
             
             case AssignNode():
                 self.expr(s.assignee)
@@ -320,6 +309,49 @@ class Editor:
 
             case _:
                 raise NotImplementedError(s.__class__)
+    
+    def begin_parallel(self) -> None:
+        original_base_x = self.base_x
+        original_y = self.y
+        previous_max_x = self.begin_local_max_x()
+        self.parallel_contexts.append((original_base_x, original_y, previous_max_x, 0))
+
+    def new_column(self) -> None:
+        # temporarely popping context
+        original_base_x, original_y, previous_max_x, final_y = self.parallel_contexts.pop()
+        local_max_x = self.end_local_max_x(previous_max_x)
+        final_y = final_y if final_y > self.y else self.y
+        self.y = original_y
+        self.use_local_max_x(local_max_x)
+
+        # repush context with updated info
+        self.parallel_contexts.append((original_base_x, original_y, previous_max_x, final_y))
+
+    def end_parallel(self) -> None:
+        original_base_x, _, _, _ = self.parallel_contexts.pop()
+        self.base_x = original_base_x
+
+    def render_else_node_only(self, body: list[StmtNode]) -> None:
+        self.text("else", self.tc_kw)
+        self.scope_indent()
+        self.icarry()
+        self.body(body)
+        self.scope_unindent()
+
+    def use_local_max_x(self, local_max_x: float) -> None:
+        self.base_x = local_max_x + self.adjust(5)
+        self.x = self.base_x
+
+    def end_local_max_x(self, old_max_x: float) -> float:
+        self.x = self.base_x
+        local_max_x = self.max_x
+        self.max_x = old_max_x
+        return local_max_x
+
+    def begin_local_max_x(self) -> float:
+        old_max_x = self.max_x
+        self.max_x = self.x
+        return old_max_x
 
     def expr(self, e: ExprNode) -> None:
         match e:
@@ -487,25 +519,27 @@ class Editor:
             mouse_scroll = -self.code_font.step
 
         if mouse_scroll != 0:
-            world_mouse_x = self.cam.target.x
-            world_mouse_y = self.cam.target.y
+            self.handle_zoom(mouse_scroll)
 
-            anchor_x = world_mouse_x / self.text_size
-            anchor_y = world_mouse_y / self.text_size
-
-            self.text_size += mouse_scroll
-            self.cap_text_size()
-            self.refresh_code_font()
-
-            # moving camera to anchor point (center of viewport)
-            new_world_mouse_x = anchor_x * self.text_size
-            new_world_mouse_y = anchor_y * self.text_size
-            self.cam.target.x = new_world_mouse_x
-            self.cam.target.y = new_world_mouse_y
-
-        
         if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             self.parallel_view_mode = not self.parallel_view_mode
+
+    def handle_zoom(self, mouse_scroll):
+        world_mouse_x = self.cam.target.x
+        world_mouse_y = self.cam.target.y
+
+        anchor_x = world_mouse_x / self.text_size
+        anchor_y = world_mouse_y / self.text_size
+
+        self.text_size += mouse_scroll
+        self.cap_text_size()
+        self.refresh_code_font()
+
+        # moving camera to anchor point (center of viewport)
+        new_world_mouse_x = anchor_x * self.text_size
+        new_world_mouse_y = anchor_y * self.text_size
+        self.cam.target.x = new_world_mouse_x
+        self.cam.target.y = new_world_mouse_y
     
     def cap_text_size(self) -> None:
         val = self.text_size
