@@ -12,7 +12,7 @@ PRIMITIVE_IDENTS = [
     "i32", "str", "chr"
 ]
 
-WRITABLES = string.digits + string.ascii_letters + string.punctuation
+IDENT_CHARS = string.digits + string.ascii_letters + "_"
 
 class Editor:
     def __init__(self) -> None:
@@ -69,11 +69,13 @@ class Editor:
     def screen_center(self) -> tuple[float, float]:
         return (self.w / 2, self.h / 2)
     
+    @property
+    def cur_under_edit(self) -> Editable:
+        assert self.under_edit != None
+        return self.editables[self.under_edit]
+    
     def refresh_running_state(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
-
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_M):
-            pr.minimize_window()
 
         if pr.window_should_close():
             self.is_running = False
@@ -124,8 +126,7 @@ class Editor:
                 pr.draw_rectangle_rec(bounding_box, self.tc_shapewire)
 
                 if mouse_click:
-                    self.under_edit = nid
-                    self.under_edit_cursor_idx = e.content_len()
+                    self.change_under_edit_to(nid)
 
     def render_cursor(self) -> None:
         if self.under_edit == None:
@@ -383,7 +384,7 @@ class Editor:
     def expr(self, e: ExprNode) -> None:
         match e:
             case IdentNode():
-                starts_with_capital = e.name[0] in string.ascii_uppercase
+                starts_with_capital = len(e.name) > 0 and e.name[0] in string.ascii_uppercase
                 if starts_with_capital or e.name in PRIMITIVE_IDENTS:
                     self.editable(e, 'name', self.tc_typing)
                 else:
@@ -558,37 +559,58 @@ class Editor:
             self.parallel_view_mode = not self.parallel_view_mode
         
         if self.under_edit != None:
-            e = self.editables[self.under_edit]
-            if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
-                if self.under_edit_cursor_idx > 0:
+            self.handle_editing_inputs(ctrl)
+
+    def handle_editing_inputs(self, ctrl: bool) -> None:
+        assert self.under_edit != None
+        e = self.editables[self.under_edit]
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
+            if self.under_edit_cursor_idx > 0:
+                self.under_edit_cursor_idx -= 1
+                
+            if ctrl:
+                self.under_edit_cursor_idx = 0
+
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_RIGHT):
+            if self.under_edit_cursor_idx < e.content_len():
+                self.under_edit_cursor_idx += 1
+                
+            if ctrl:
+                self.under_edit_cursor_idx = self.cur_under_edit.content_len()
+            
+        keychar = chr(pr.get_char_pressed())
+        if keychar in IDENT_CHARS:
+            idx = self.under_edit_cursor_idx
+            content = e.content()
+            e.set_content(content[:idx] + keychar + content[idx:])
+            self.under_edit_cursor_idx += 1
+            
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
+            idx = self.under_edit_cursor_idx
+            if ctrl:
+                e.set_content(e.content()[idx:])
+                self.under_edit_cursor_idx = 0
+            else:
+                if idx > 0:
+                    content = e.content()
+                    e.set_content(content[:idx-1] + content[idx:])
                     self.under_edit_cursor_idx -= 1
 
-            if pr.is_key_pressed(pr.KeyboardKey.KEY_RIGHT):
-                if self.under_edit_cursor_idx < e.content_len():
-                    self.under_edit_cursor_idx += 1
-            
-            keychar = chr(pr.get_char_pressed())
-            if keychar in WRITABLES:
-                idx = self.under_edit_cursor_idx
-                content = e.content()
-                e.set_content(content[:idx] + keychar + content[idx:])
-                self.under_edit_cursor_idx += 1
-            
-            if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
-                idx = self.under_edit_cursor_idx
-                if ctrl:
-                    e.set_content(e.content()[idx:])
-                    self.under_edit_cursor_idx = 0
-                else:
-                    if idx > 0:
-                        content = e.content()
-                        e.set_content(content[:idx-1] + content[idx:])
-                        self.under_edit_cursor_idx -= 1
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+            self.change_under_edit_to(None)
 
-            if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
-                self.under_edit = None
+    def change_under_edit_to(self, new_one: int | None) -> None:
+        if self.under_edit != None:
+            if self.cur_under_edit.content_len() == 0:
+                self.cur_under_edit.set_content("_")
 
-    def handle_zoom(self, mouse_scroll):
+        self.under_edit = new_one
+        if self.under_edit != None:
+            self.under_edit_cursor_idx = self.cur_under_edit.content_len()
+        else:
+            self.under_edit_cursor_idx = 0
+
+    def handle_zoom(self, mouse_scroll: float) -> None:
         world_mouse_x = self.cam.target.x
         world_mouse_y = self.cam.target.y
 
