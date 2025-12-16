@@ -139,7 +139,7 @@ class Editor:
         )
 
         pr.draw_rectangle_rec(cusor, self.tc_cursor)
-        self.log("cursor_x_pos", str(cursor_x_pos))
+        self.log("cursor_x_pos", cursor_x_pos)
 
     def canvas(self) -> None:
         self.x = 0
@@ -569,16 +569,20 @@ class Editor:
             
             keychar = chr(pr.get_char_pressed())
             if keychar in WRITABLES:
-                e.set_content(e.content() + keychar)
+                idx = self.under_edit_cursor_idx
+                content = e.content()
+                e.set_content(content[:idx] + keychar + content[idx:])
                 self.under_edit_cursor_idx += 1
             
             if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
+                idx = self.under_edit_cursor_idx
                 if ctrl:
-                    e.set_content("")
-                    self.under_edit_cursor_idx = 0 # TODO refactor
+                    e.set_content(e.content()[idx:])
+                    self.under_edit_cursor_idx = 0
                 else:
-                    if self.under_edit_cursor_idx > 0:
-                        e.set_content(e.content()[:-1])
+                    if idx > 0:
+                        content = e.content()
+                        e.set_content(content[:idx-1] + content[idx:])
                         self.under_edit_cursor_idx -= 1
 
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
