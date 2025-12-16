@@ -9,20 +9,28 @@ def next_nid() -> int:
     incremental_nid += 1
     return incremental_nid
 
-
-@dataclass
-class Node:
-    def __post_init__(self) -> None:
+class NodeBase:
+    def __init__(self) -> None:
         # nid is node id
         # so the editor can have an internal associative
         # table to map nid -> canvas position of the node
         self.nid: int = next_nid()
+        self.parent: Node | None = None
+
+@dataclass
+class Node(NodeBase):
+    def __post_init__(self) -> None:
+        super().__init__()
 
 @dataclass
 class DeclNode(Node):
     name: str
     value: Node
     doc: str = ""
+
+    def __post_init__(self) -> None:
+        self.value.parent = self
+        super().__post_init__()
 
 # --
 
@@ -39,6 +47,11 @@ class CallNode(StmtNode):
     callee: ExprNode
     ins: list[ExprNode]
     outs: list[str]
+
+    def __post_init__(self) -> None:
+        self.callee.parent = self
+        for n in self.ins: n.parent = self
+        super().__post_init__()
 
 @dataclass
 class IdentNode(ExprNode):
@@ -58,15 +71,28 @@ class BinaryNode(ExprNode):
     op: str
     r: ExprNode
 
+    def __post_init__(self) -> None:
+        self.l.parent = self
+        self.r.parent = self
+        super().__post_init__()
+
 @dataclass
 class IncomeNode(Node):
     name: str
     typing: ExprNode
 
+    def __post_init__(self) -> None:
+        self.typing.parent = self
+        super().__post_init__()
+
 @dataclass
 class OutcomeNode(Node):
     name: str
     typing: ExprNode
+
+    def __post_init__(self) -> None:
+        self.typing.parent = self
+        super().__post_init__()
 
 @dataclass
 class FnNode(Node):
@@ -74,10 +100,21 @@ class FnNode(Node):
     outs: list[OutcomeNode]
     body: list[StmtNode]
 
+    def __post_init__(self) -> None:
+        for n in self.ins: n.parent = self
+        for n in self.outs: n.parent = self
+        for n in self.body: n.parent = self
+        super().__post_init__()
+
 @dataclass
 class AssignNode(StmtNode):
     assignee: ExprNode
     assigner: ExprNode
+
+    def __post_init__(self) -> None:
+        self.assignee.parent = self
+        self.assigner.parent = self
+        super().__post_init__()
 
 @dataclass
 class ReturnNode(StmtNode):
@@ -88,7 +125,21 @@ class IfNode(StmtNode):
     expr: ExprNode
     body: list[StmtNode]
 
+    def __post_init__(self) -> None:
+        self.expr.parent = self
+        for n in self.body: n.parent = self
+        super().__post_init__()
+
 @dataclass
 class ElseNode(StmtNode):
     ifnode: IfNode
     body: list[StmtNode]
+
+    def __post_init__(self) -> None:
+        self.ifnode.parent = self
+        for n in self.body: n.parent = self
+        super().__post_init__()
+
+@dataclass
+class PlaceholderNode(Node):
+    value: str = ""

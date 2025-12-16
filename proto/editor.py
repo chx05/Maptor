@@ -116,10 +116,7 @@ class Editor:
         mouse_click = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)
         
         for nid, e in self.editables.items():
-            bounding_box = pr.Rectangle(
-                e.x, e.y,
-                self.adjust(e.content_len()),
-                self.text_size)
+            bounding_box = self.editable_bounding_box(e)
             
             hover = pr.check_collision_point_rec(mouse_pos, bounding_box)
             if hover:
@@ -128,19 +125,28 @@ class Editor:
                 if mouse_click:
                     self.change_under_edit_to(nid)
 
+    def editable_bounding_box(self, e: Editable) -> pr.Rectangle:
+        return pr.Rectangle(
+            e.x, e.y,
+            self.adjust(e.content_len()),
+            self.text_size
+        )
+
     def render_cursor(self) -> None:
         if self.under_edit == None:
             return
         
-        editable = self.editables[self.under_edit]
-        cursor_x_pos = editable.x + self.adjust(self.under_edit_cursor_idx)
-        cusor = pr.Rectangle(
-            cursor_x_pos, editable.y,
-            self.adjust(0.2), self.text_size
-        )
-
-        pr.draw_rectangle_rec(cusor, self.tc_cursor)
-        self.log("cursor_x_pos", cursor_x_pos)
+        e = self.cur_under_edit
+        if e.field_name == None:
+            cursor = self.editable_bounding_box(e)
+            pr.draw_rectangle_rec(cursor, self.tc_shapewire)
+        else:
+            cursor_x_pos = e.x + self.adjust(self.under_edit_cursor_idx)
+            cursor = pr.Rectangle(
+                cursor_x_pos, e.y,
+                self.adjust(0.2), self.text_size
+            )
+            pr.draw_rectangle_rec(cursor, self.tc_cursor)
 
     def canvas(self) -> None:
         self.x = 0
@@ -397,11 +403,11 @@ class Editor:
             case LitNode():
                 match e.value:
                     case None:
-                        self.text("null", self.tc_lit)
+                        self.editable_solid("null", e, self.tc_lit)
                     case bool():
-                        self.text("true" if e.value else "false", self.tc_lit)
+                        self.editable_solid("true" if e.value else "false", e, self.tc_lit)
                     case str():
-                        self.text('"' + repr("'" + e.value).removeprefix('"\''), self.tc_lit)
+                        self.editable_custom_render('"' + repr("'" + e.value).removeprefix('"\''), e, "value", self.tc_lit)
                     case _:
                         self.text(repr(e.value), self.tc_lit)
             
@@ -413,6 +419,9 @@ class Editor:
                 self.text(e.op, self.tc_kw)
                 self.one()
                 self.expr(e.r)
+
+            case PlaceholderNode():
+                self.text("_", self.tc_wire)
 
             case _:
                 raise NotImplementedError(e.__class__)
@@ -486,16 +495,21 @@ class Editor:
         self.x += m.x
     
     def editable(self, node: Node, field_name: str, color: pr.Color) -> None:
-        start_x = self.x
-        start_y = self.y
-        self.editables[node.nid] = Editable(node, field_name, start_x, start_y)
-
+        self.editables[node.nid] = Editable(node, field_name, self.x, self.y)
         self.text(getattr(node, field_name), color)
         #txt = cast(str, getattr(node, field_name)).split("_")
         #for i, t in enumerate(txt):
         #    self.text(t, color)
         #    if i != len(txt) - 1:
         #        self.text("_", self.tc_wire)
+    
+    def editable_custom_render(self, rendering_text: str, node: Node, field_name: str, color: pr.Color) -> None:
+        self.editables[node.nid] = Editable(node, field_name, self.x, self.y)
+        self.text(rendering_text, color)
+
+    def editable_solid(self, rendering_text: str, node: Node, color: pr.Color) -> None:
+        self.editables[node.nid] = Editable(node, None, self.x, self.y, SolidContent(len(rendering_text)))
+        self.text(rendering_text, color)
 
     def gui(self) -> None:
         self.display_fps()
@@ -558,12 +572,19 @@ class Editor:
         if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             self.parallel_view_mode = not self.parallel_view_mode
         
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+            self.change_under_edit_to(None)
+        
         if self.under_edit != None:
-            self.handle_editing_inputs(ctrl)
+            if self.cur_under_edit.field_name == None:
+                self.handle_solid_editing_inputs(ctrl)
+            else:
+                self.handle_editing_inputs(ctrl)
 
     def handle_editing_inputs(self, ctrl: bool) -> None:
         assert self.under_edit != None
-        e = self.editables[self.under_edit]
+        e = self.cur_under_edit
+        
         if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
             if self.under_edit_cursor_idx > 0:
                 self.under_edit_cursor_idx -= 1
@@ -598,6 +619,21 @@ class Editor:
 
         if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
             self.change_under_edit_to(None)
+
+    def handle_solid_editing_inputs(self, ctrl: bool) -> None:
+        assert self.under_edit != None
+        e = self.cur_under_edit
+        assert e.solid_content != None
+            
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
+            assert isinstance(e.node.parent, BinaryNode)
+            assert e.node.parent.r.nid == e.node.nid # must be the one on the right
+            n = IdentNode("")
+            e.node.parent.r = cast(ExprNode, n)
+            self.cur_under_edit.node = n
+            self.cur_under_edit.field_name = "name"
+            self.cur_under_edit.solid_content = None
+            self.under_edit_cursor_idx = 0
 
     def change_under_edit_to(self, new_one: int | None) -> None:
         if self.under_edit != None:
