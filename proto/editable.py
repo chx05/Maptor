@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from syntree import Node
+from syntree import Node, LitNode, LitChrNode
 
 @dataclass
 class SolidContent:
@@ -14,6 +14,9 @@ class Editable:
 
     # only available when field_name is None
     solid_content: None | SolidContent = None
+
+    def is_quoted_lit(self) -> bool:
+        return isinstance(self.node, (LitNode, LitChrNode))
 
     def content(self) -> str:
         if self.field_name == None:

@@ -2,7 +2,7 @@ import pyray as pr
 import utils
 import string
 
-from typing import cast
+from typing import Callable, cast
 from multi_sized_font import MultiSizedFont
 from project import Project
 from syntree import *
@@ -126,9 +126,15 @@ class Editor:
                     self.change_under_edit_to(nid)
 
     def editable_bounding_box(self, e: Editable) -> pr.Rectangle:
+        x_offset = 0
+        w_offset = 0
+        if e.is_quoted_lit():
+            x_offset = self.adjust(-1)
+            w_offset = 2
+
         return pr.Rectangle(
-            e.x, e.y,
-            self.adjust(e.content_len()),
+            e.x + x_offset, e.y,
+            self.adjust(e.content_len() + w_offset),
             self.text_size
         )
 
@@ -407,7 +413,13 @@ class Editor:
                     case bool():
                         self.editable_solid("true" if e.value else "false", e, self.tc_lit)
                     case str():
-                        self.editable_custom_render('"' + repr("'" + e.value).removeprefix('"\''), e, "value", self.tc_lit)
+                        self.editable_custom_render(
+                            '"' + repr("'" + e.value).removeprefix('"\''),
+                            self.x + self.adjust(1),
+                            e,
+                            "value",
+                            self.tc_lit
+                        )
                     case _:
                         self.text(repr(e.value), self.tc_lit)
             
@@ -503,8 +515,8 @@ class Editor:
         #    if i != len(txt) - 1:
         #        self.text("_", self.tc_wire)
     
-    def editable_custom_render(self, rendering_text: str, node: Node, field_name: str, color: pr.Color) -> None:
-        self.editables[node.nid] = Editable(node, field_name, self.x, self.y)
+    def editable_custom_render(self, rendering_text: str, x: float, node: Node, field_name: str, color: pr.Color) -> None:
+        self.editables[node.nid] = Editable(node, field_name, x, self.y, )
         self.text(rendering_text, color)
 
     def editable_solid(self, rendering_text: str, node: Node, color: pr.Color) -> None:
@@ -572,9 +584,6 @@ class Editor:
         if ctrl and pr.is_key_pressed(pr.KeyboardKey.KEY_P):
             self.parallel_view_mode = not self.parallel_view_mode
         
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
-            self.change_under_edit_to(None)
-        
         if self.under_edit != None:
             if self.cur_under_edit.field_name == None:
                 self.handle_solid_editing_inputs(ctrl)
@@ -586,21 +595,29 @@ class Editor:
         e = self.cur_under_edit
         
         if pr.is_key_pressed(pr.KeyboardKey.KEY_LEFT):
-            if self.under_edit_cursor_idx > 0:
-                self.under_edit_cursor_idx -= 1
-                
             if ctrl:
-                self.under_edit_cursor_idx = 0
+                self.cursor_skip_word(direction=-1)
+            else:
+                if self.under_edit_cursor_idx > 0:
+                    self.under_edit_cursor_idx -= 1
 
         if pr.is_key_pressed(pr.KeyboardKey.KEY_RIGHT):
-            if self.under_edit_cursor_idx < e.content_len():
-                self.under_edit_cursor_idx += 1
-                
             if ctrl:
-                self.under_edit_cursor_idx = self.cur_under_edit.content_len()
+                self.cursor_skip_word(direction=+1)
+            else:
+                if self.under_edit_cursor_idx < e.content_len():
+                    self.under_edit_cursor_idx += 1
+        
+        key_begin = pr.KeyboardKey.KEY_KP_7
+        if pr.is_key_pressed(key_begin):
+            self.under_edit_cursor_idx = 0
+
+        key_end = pr.KeyboardKey.KEY_KP_1
+        if pr.is_key_pressed(key_end):
+            self.under_edit_cursor_idx = self.cur_under_edit.content_len()
             
         keychar = chr(pr.get_char_pressed())
-        if keychar in IDENT_CHARS:
+        if keychar in IDENT_CHARS or (keychar in string.printable and self.cur_under_edit.is_quoted_lit()):
             idx = self.under_edit_cursor_idx
             content = e.content()
             e.set_content(content[:idx] + keychar + content[idx:])
@@ -609,16 +626,55 @@ class Editor:
         if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
             idx = self.under_edit_cursor_idx
             if ctrl:
-                e.set_content(e.content()[idx:])
-                self.under_edit_cursor_idx = 0
+                content = e.content()
+                self.cursor_skip_word(direction=-1)
+                delta = abs(idx - self.under_edit_cursor_idx)
+                e.set_content(content[:idx-delta] + content[idx:])
             else:
                 if idx > 0:
                     content = e.content()
                     e.set_content(content[:idx-1] + content[idx:])
                     self.under_edit_cursor_idx -= 1
 
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+        esc = pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE)
+        enter = pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER)
+        if esc or enter:
             self.change_under_edit_to(None)
+    
+    def cursor_skip_word(self, direction: int) -> None:
+        self.cursor_skip_while(direction, lambda c: c not in IDENT_CHARS)
+        self.cursor_skip_while(direction, lambda c: c in IDENT_CHARS)
+
+    def cursor_skip_while(self, direction: int, predicate: Callable[[str], bool]) -> None:
+        skip_count = 0
+        content = self.cur_under_edit.content()
+        i = self.under_edit_cursor_idx
+        
+        match direction:
+            case -1:
+                offset = -1
+                has_left = lambda: i > 0
+                has_right = lambda: i <= len(content)
+            case 1:
+                offset = 0
+                has_left = lambda: i >= 0
+                has_right = lambda: i < len(content)
+            case _:
+                raise ValueError()
+
+        while has_left() and has_right():
+            c = content[i + offset]
+
+            if predicate(c):
+                skip_count += 1
+                i += direction
+            else:
+                if skip_count == 0:
+                    i += direction
+                
+                break
+        
+        self.under_edit_cursor_idx = i
 
     def handle_solid_editing_inputs(self, ctrl: bool) -> None:
         assert self.under_edit != None
@@ -637,7 +693,7 @@ class Editor:
 
     def change_under_edit_to(self, new_one: int | None) -> None:
         if self.under_edit != None:
-            if self.cur_under_edit.content_len() == 0:
+            if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
                 self.cur_under_edit.set_content("_")
 
         self.under_edit = new_one
