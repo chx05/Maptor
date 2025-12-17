@@ -24,6 +24,7 @@ class Editor:
 
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
+        # nid -> editable
         self.editables: dict[int, Editable] = {}
         # original_base_x, original_y, previous_max_x, final_y
         self.parallel_contexts: list[tuple[float, float, float, float]] = []
@@ -561,8 +562,8 @@ class Editor:
 
     def inputs(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
-
         shift = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
+
         mouse_dx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
         if mouse_dx_btn or shift:
             delta = pr.get_mouse_delta()
@@ -586,6 +587,14 @@ class Editor:
             self.parallel_view_mode = not self.parallel_view_mode
         
         if self.under_edit != None:
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_TAB):
+                ks = list(self.editables.keys())
+                ki = ks.index(self.under_edit)
+                if shift:
+                    self.change_under_edit_to(ks[ki-1 if ki > 0 else ki])
+                else:
+                    self.change_under_edit_to(ks[ki+1 if ki < len(ks) else ki])
+
             if self.cur_under_edit.field_name == None:
                 self.handle_solid_editing_inputs(ctrl)
             else:
