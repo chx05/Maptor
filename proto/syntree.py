@@ -1,4 +1,13 @@
+import string
+
 from dataclasses import dataclass
+
+
+PRIMITIVE_IDENTS = [
+    "i32", "str", "chr"
+]
+
+IDENT_CHARS = string.digits + string.ascii_letters + "_"
 
 
 incremental_nid: int = -1

@@ -8,11 +8,6 @@ from project import Project
 from syntree import *
 from editable import *
 
-PRIMITIVE_IDENTS = [
-    "i32", "str", "chr"
-]
-
-IDENT_CHARS = string.digits + string.ascii_letters + "_"
 
 class Editor:
     def __init__(self) -> None:
@@ -404,7 +399,13 @@ class Editor:
             
             case LitChrNode():
                 assert isinstance(e.value, str)
-                self.text("'" + repr('"' + e.value).removeprefix("'\""), self.tc_lit)
+                self.editable_custom_render(
+                    "'" + repr('"' + e.value).removeprefix("'\"").replace("\\\\", "\\"),
+                    self.x + self.adjust(1),
+                    e,
+                    "value",
+                    self.tc_lit
+                )
 
             case LitNode():
                 match e.value:
@@ -414,7 +415,7 @@ class Editor:
                         self.editable_solid("true" if e.value else "false", e, self.tc_lit)
                     case str():
                         self.editable_custom_render(
-                            '"' + repr("'" + e.value).removeprefix('"\''),
+                            '"' + repr("'" + e.value).removeprefix('"\'').replace("\\\\", "\\"),
                             self.x + self.adjust(1),
                             e,
                             "value",
@@ -617,7 +618,7 @@ class Editor:
             self.under_edit_cursor_idx = self.cur_under_edit.content_len()
             
         keychar = chr(pr.get_char_pressed())
-        if keychar in IDENT_CHARS or (keychar in string.printable and self.cur_under_edit.is_quoted_lit()):
+        if self.cur_under_edit.supports_char(keychar):
             idx = self.under_edit_cursor_idx
             content = e.content()
             e.set_content(content[:idx] + keychar + content[idx:])

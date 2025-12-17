@@ -1,5 +1,7 @@
+import string
+
 from dataclasses import dataclass
-from syntree import Node, LitNode, LitChrNode
+from syntree import *
 
 @dataclass
 class SolidContent:
@@ -16,7 +18,19 @@ class Editable:
     solid_content: None | SolidContent = None
 
     def is_quoted_lit(self) -> bool:
-        return isinstance(self.node, (LitNode, LitChrNode))
+        return isinstance(self.node, (LitNode, LitChrNode)) and isinstance(self.node.value, str)
+    
+    def supports_char(self, c: str) -> bool:
+        if c not in string.printable:
+            return False
+        
+        match self.node:
+            case IdentNode() | IncomeNode() | OutcomeNode() | DeclNode():
+                return c in IDENT_CHARS
+            case LitChrNode():
+                return self.content_len() < 1
+            case _:
+                return self.is_quoted_lit()
 
     def content(self) -> str:
         if self.field_name == None:
