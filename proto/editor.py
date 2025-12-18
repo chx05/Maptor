@@ -31,6 +31,7 @@ class Editor:
         # nid
         self.under_edit: int | None = None
         self.under_edit_cursor_idx: int = 0
+        self.post_canvas_procs: list[Callable] = []
 
         self.logs: dict[str, str] = {}
 
@@ -94,6 +95,7 @@ class Editor:
 
             pr.begin_mode_2d(self.cam)
             self.canvas()
+            self.consume_post_canvas_procedures()
             self.handle_editables()
             self.render_cursor()
             self.inputs()
@@ -106,6 +108,11 @@ class Editor:
         
         self.unload_stuff()
         pr.close_window()
+
+    def consume_post_canvas_procedures(self) -> None:
+        while len(self.post_canvas_procs) > 0:
+            proc = self.post_canvas_procs.pop()
+            proc()
 
     def handle_editables(self) -> None:
         mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -342,6 +349,9 @@ class Editor:
                 self.text("=", self.tc_kw)
                 self.one()
                 self.expr(s.assigner)
+            
+            case BufferNode():
+                self.editable(s, "value", self.tc_normal)
 
             case _:
                 raise NotImplementedError(s.__class__)
@@ -594,11 +604,44 @@ class Editor:
                     self.change_under_edit_to(ks[ki-1 if ki > 0 else ki])
                 else:
                     self.change_under_edit_to(ks[ki+1 if ki < len(ks) else ki])
+            
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
+                self.change_under_edit_to(None)
+
+            if pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER):
+                nid = self.add_node_below()
+                self.post_canvas_procs.append(lambda: self.change_under_edit_to(nid))
 
             if self.cur_under_edit.field_name == None:
                 self.handle_solid_editing_inputs(ctrl)
             else:
                 self.handle_editing_inputs(ctrl)
+    
+    def find_below_type(self, node: Node | None) -> tuple[list[Node], Node]:
+        assert node != None, "Node type not found"
+
+        match node:
+            case IncomeNode():
+                assert isinstance(node.parent, FnNode)
+                return cast(list[Node], node.parent.ins), node
+            case OutcomeNode():
+                assert isinstance(node.parent, FnNode)
+                return cast(list[Node], node.parent.outs), node
+            case StmtNode():
+                body = getattr(node.parent, "body")
+                return cast(list[Node], body), node
+            case _:
+                return self.find_below_type(node.parent)
+
+    def add_node_below(self) -> int:
+        node = self.cur_under_edit.node
+        seq, cur = self.find_below_type(node.parent)
+        
+        new_node = BufferNode()
+        new_node.parent = cur.parent
+        seq.insert(seq.index(cur) + 1, new_node)
+
+        return new_node.nid
 
     def handle_editing_inputs(self, ctrl: bool) -> None:
         assert self.under_edit != None
@@ -645,11 +688,6 @@ class Editor:
                     content = e.content()
                     e.set_content(content[:idx-1] + content[idx:])
                     self.under_edit_cursor_idx -= 1
-
-        esc = pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE)
-        enter = pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER)
-        if esc or enter:
-            self.change_under_edit_to(None)
     
     def cursor_skip_word(self, direction: int) -> None:
         self.cursor_skip_while(direction, lambda c: c not in IDENT_CHARS)

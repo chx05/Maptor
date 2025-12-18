@@ -152,3 +152,7 @@ class ElseNode(StmtNode):
 @dataclass
 class PlaceholderNode(Node):
     value: str = ""
+
+@dataclass
+class BufferNode(PlaceholderNode, StmtNode):
+    pass
