@@ -403,8 +403,11 @@ class Editor:
         self.parallel_contexts.append((original_base_x, original_y, previous_max_x, final_y))
 
     def end_parallel(self) -> None:
-        original_base_x, _, _, _ = self.parallel_contexts.pop()
+        original_base_x, _, _, final_y = self.parallel_contexts.pop()
         self.base_x = original_base_x
+
+        if final_y > self.y:
+            self.y = final_y
 
     def render_else_node_only(self, body: list[StmtNode]) -> None:
         self.text("else", self.tc_kw)
