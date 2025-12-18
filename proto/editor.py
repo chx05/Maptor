@@ -24,8 +24,8 @@ class Editor:
 
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
-        # nid -> editable
-        self.editables: dict[int, Editable] = {}
+        # no nid->editable dict because i need temporal sorting
+        self.editables: list[Editable] = []
         # original_base_x, original_y, previous_max_x, final_y
         self.parallel_contexts: list[tuple[float, float, float, float]] = []
         # nid
@@ -69,7 +69,25 @@ class Editor:
     @property
     def cur_under_edit(self) -> Editable:
         assert self.under_edit != None
-        return self.editables[self.under_edit]
+        return self.get_editable(self.under_edit)
+    
+    def get_editable(self, nid: int) -> Editable:
+        for e in self.editables:
+            if e.node.nid == nid:
+                return e
+        
+        raise ValueError(nid)
+
+    def set_editable(self, e: Editable) -> None:
+        for i, a in enumerate(self.editables):
+            if a.node.nid == e.node.nid:
+                self.editables[i] = e
+                return
+        
+        self.editables.append(e)
+    
+    def get_editables_keys(self) -> list[int]:
+        return list(map(lambda e: e.node.nid, self.editables))
     
     def refresh_running_state(self) -> None:
         ctrl = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_CONTROL)
@@ -94,6 +112,7 @@ class Editor:
             pr.clear_background(self.bg)
 
             pr.begin_mode_2d(self.cam)
+            self.editables.clear()
             self.canvas()
             self.consume_post_canvas_procedures()
             self.handle_editables()
@@ -111,14 +130,14 @@ class Editor:
 
     def consume_post_canvas_procedures(self) -> None:
         while len(self.post_canvas_procs) > 0:
-            proc = self.post_canvas_procs.pop()
+            proc = self.post_canvas_procs.pop(0)
             proc()
 
     def handle_editables(self) -> None:
         mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
         mouse_click = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)
         
-        for nid, e in self.editables.items():
+        for e in self.editables:
             bounding_box = self.editable_bounding_box(e)
             
             hover = pr.check_collision_point_rec(mouse_pos, bounding_box)
@@ -126,7 +145,7 @@ class Editor:
                 pr.draw_rectangle_rec(bounding_box, self.tc_shapewire)
 
                 if mouse_click:
-                    self.change_under_edit_to(nid)
+                    self.change_under_edit_to(e.node.nid)
 
     def editable_bounding_box(self, e: Editable) -> pr.Rectangle:
         x_offset = 0
@@ -350,7 +369,7 @@ class Editor:
                 self.one()
                 self.expr(s.assigner)
             
-            case BufferNode():
+            case StmtBufferNode():
                 self.editable(s, "value", self.tc_normal)
 
             case _:
@@ -519,7 +538,7 @@ class Editor:
         self.x += m.x
     
     def editable(self, node: Node, field_name: str, color: pr.Color) -> None:
-        self.editables[node.nid] = Editable(node, field_name, self.x, self.y)
+        self.set_editable(Editable(node, field_name, self.x, self.y))
         self.text(getattr(node, field_name), color)
         #txt = cast(str, getattr(node, field_name)).split("_")
         #for i, t in enumerate(txt):
@@ -528,11 +547,11 @@ class Editor:
         #        self.text("_", self.tc_wire)
     
     def editable_custom_render(self, rendering_text: str, x: float, node: Node, field_name: str, color: pr.Color) -> None:
-        self.editables[node.nid] = Editable(node, field_name, x, self.y, )
+        self.set_editable(Editable(node, field_name, x, self.y))
         self.text(rendering_text, color)
 
     def editable_solid(self, rendering_text: str, node: Node, color: pr.Color) -> None:
-        self.editables[node.nid] = Editable(node, None, self.x, self.y, SolidContent(len(rendering_text)))
+        self.set_editable(Editable(node, None, self.x, self.y, SolidContent(len(rendering_text))))
         self.text(rendering_text, color)
 
     def gui(self) -> None:
@@ -598,12 +617,12 @@ class Editor:
         
         if self.under_edit != None:
             if pr.is_key_pressed(pr.KeyboardKey.KEY_TAB):
-                ks = list(self.editables.keys())
+                ks = self.get_editables_keys()
                 ki = ks.index(self.under_edit)
                 if shift:
-                    self.change_under_edit_to(ks[ki-1 if ki > 0 else ki])
+                    self.change_under_edit_to(ks[ki-1 if ki-1 >= 0 else 0])
                 else:
-                    self.change_under_edit_to(ks[ki+1 if ki < len(ks) else ki])
+                    self.change_under_edit_to(ks[ki+1 if ki+1 < len(ks) else len(ks)-1])
             
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
                 self.change_under_edit_to(None)
@@ -617,29 +636,28 @@ class Editor:
             else:
                 self.handle_editing_inputs(ctrl)
     
-    def find_below_type(self, node: Node | None) -> tuple[list[Node], Node]:
+    def find_below_type(self, node: Node | None) -> tuple[list[Node], Node, Node]:
         assert node != None, "Node type not found"
 
         match node:
             case IncomeNode():
                 assert isinstance(node.parent, FnNode)
-                return cast(list[Node], node.parent.ins), node
+                return cast(list[Node], node.parent.ins), node, IncomeNode("new_income", IdentNode("i32"))
             case OutcomeNode():
                 assert isinstance(node.parent, FnNode)
-                return cast(list[Node], node.parent.outs), node
+                return cast(list[Node], node.parent.outs), node, OutcomeNode("new_outcome", IdentNode("i32"))
             case StmtNode():
                 body = getattr(node.parent, "body")
-                return cast(list[Node], body), node
+                return cast(list[Node], body), node, StmtBufferNode()
             case _:
                 return self.find_below_type(node.parent)
 
     def add_node_below(self) -> int:
         node = self.cur_under_edit.node
-        seq, cur = self.find_below_type(node.parent)
-        
-        new_node = BufferNode()
+        seq, cur, new_node = self.find_below_type(node)
+
         new_node.parent = cur.parent
-        seq.insert(seq.index(cur) + 1, new_node)
+        seq.insert(utils.index_of(seq, cur) + 1, new_node)
 
         return new_node.nid
 

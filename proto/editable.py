@@ -29,7 +29,7 @@ class Editable:
                 return c in IDENT_CHARS
             case LitChrNode():
                 return self.content_len() < 1
-            case BufferNode():
+            case StmtBufferNode():
                 return True
             case _:
                 return self.is_quoted_lit()
