@@ -11,16 +11,8 @@ from editable import *
 
 class Editor:
     def __init__(self) -> None:
-        self.bg = pr.Color(244, 245, 248, 255)
-        self.tc_typing = pr.Color(139, 38, 53, 255)
-        self.tc_normal = pr.Color(11, 10, 7, 255)
-        self.tc_wire = pr.color_alpha(self.tc_normal, 0.3)
-        self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
-        self.tc_dbg_gui = pr.color_alpha(self.tc_normal, 0.4)
-        self.tc_kw = pr.Color(216, 49, 91, 255)
-        self.tc_lit = pr.Color(6, 167, 125, 255)
-        self.tc_fn_name = pr.Color(130, 106, 237, 255)
-        self.tc_cursor = pr.Color(0, 71, 119, 255)
+        #self.light_mode()
+        self.dark_mode()
 
         self.is_running: bool = True
         self.parallel_view_mode: bool = False
@@ -31,7 +23,6 @@ class Editor:
         # nid
         self.under_edit: int | None = None
         self.under_edit_cursor_idx: int = 0
-        self.post_canvas_procs: list[Callable] = []
 
         self.logs: dict[str, str] = {}
 
@@ -71,6 +62,30 @@ class Editor:
         assert self.under_edit != None
         return self.get_editable(self.under_edit)
     
+    def light_mode(self) -> None:
+        self.bg = pr.Color(244, 245, 248, 255)
+        self.tc_typing = pr.Color(139, 38, 53, 255)
+        self.tc_normal = pr.Color(11, 10, 7, 255)
+        self.tc_wire = pr.color_alpha(self.tc_normal, 0.3)
+        self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
+        self.tc_dbg_gui = pr.color_alpha(self.tc_normal, 0.4)
+        self.tc_kw = pr.Color(216, 49, 91, 255)
+        self.tc_lit = pr.Color(6, 167, 125, 255)
+        self.tc_fn_name = pr.Color(130, 106, 237, 255)
+        self.tc_cursor = pr.Color(0, 71, 119, 255)
+
+    def dark_mode(self) -> None:
+        self.bg = pr.Color(20, 22, 28, 255)
+        self.tc_typing = pr.Color(255, 121, 140, 255)
+        self.tc_normal = pr.Color(224, 225, 232, 255)
+        self.tc_wire = pr.color_alpha(self.tc_normal, 0.25)
+        self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
+        self.tc_dbg_gui = pr.color_alpha(self.tc_normal, 0.35)
+        self.tc_kw = pr.Color(255, 98, 151, 255)
+        self.tc_lit = pr.Color(90, 247, 190, 255)
+        self.tc_fn_name = pr.Color(150, 180, 255, 255)
+        self.tc_cursor = pr.Color(120, 200, 255, 255)
+
     def get_editable(self, nid: int) -> Editable:
         for e in self.editables:
             if e.node.nid == nid:
@@ -114,9 +129,9 @@ class Editor:
             pr.begin_mode_2d(self.cam)
             self.editables.clear()
             self.canvas()
-            self.consume_post_canvas_procedures()
             self.handle_editables()
             self.render_cursor()
+            # must be the last one
             self.inputs()
             pr.end_mode_2d()
             
@@ -127,11 +142,6 @@ class Editor:
         
         self.unload_stuff()
         pr.close_window()
-
-    def consume_post_canvas_procedures(self) -> None:
-        while len(self.post_canvas_procs) > 0:
-            proc = self.post_canvas_procs.pop(0)
-            proc()
 
     def handle_editables(self) -> None:
         mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -326,7 +336,7 @@ class Editor:
     def stmt(self, s: StmtNode) -> None:
         match s:
             case ReturnNode():
-                self.text("return", self.tc_kw)
+                self.editable_solid("return", s, self.tc_kw)
             
             case CallNode():
                 assert isinstance(s.callee, IdentNode)
@@ -629,14 +639,17 @@ class Editor:
 
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER):
                 nid = self.add_node_below()
-                self.post_canvas_procs.append(lambda: self.change_under_edit_to(nid))
+                self.change_under_edit_to(nid, new_one_born_on_this_frame=True)
+                # we can't continue because that nid
+                # will be valid starting from the next frame
+                return
 
             if self.cur_under_edit.field_name == None:
                 self.handle_solid_editing_inputs(ctrl)
             else:
                 self.handle_editing_inputs(ctrl)
     
-    def find_below_type(self, node: Node | None) -> tuple[list[Node], Node, Node]:
+    def find_room_below(self, node: Node | None) -> tuple[list[Node], Node, Node]:
         assert node != None, "Node type not found"
 
         match node:
@@ -650,11 +663,11 @@ class Editor:
                 body = getattr(node.parent, "body")
                 return cast(list[Node], body), node, StmtBufferNode()
             case _:
-                return self.find_below_type(node.parent)
+                return self.find_room_below(node.parent)
 
     def add_node_below(self) -> int:
         node = self.cur_under_edit.node
-        seq, cur, new_node = self.find_below_type(node)
+        seq, cur, new_node = self.find_room_below(node)
 
         new_node.parent = cur.parent
         seq.insert(utils.index_of(seq, cur) + 1, new_node)
@@ -742,28 +755,39 @@ class Editor:
         
         self.under_edit_cursor_idx = i
 
+    def get_tmp_node_for(self, node: Node) -> Node:
+        match node:
+            case StmtNode():
+                return StmtBufferNode()
+            case ExprNode():
+                return IdentNode("")
+            case _:
+                return PlaceholderNode()
+
     def handle_solid_editing_inputs(self, ctrl: bool) -> None:
         assert self.under_edit != None
         e = self.cur_under_edit
         assert e.solid_content != None
             
         if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
-            assert isinstance(e.node.parent, BinaryNode)
-            assert e.node.parent.r.nid == e.node.nid # must be the one on the right
-            n = IdentNode("")
-            e.node.parent.r = cast(ExprNode, n)
-            self.cur_under_edit.node = n
-            self.cur_under_edit.field_name = "name"
-            self.cur_under_edit.solid_content = None
-            self.under_edit_cursor_idx = 0
+            assert e.node.parent != None
+            new_node = self.get_tmp_node_for(e.node)
+            new_node.parent = e.node.parent
 
-    def change_under_edit_to(self, new_one: int | None) -> None:
+            self.change_under_edit_to(new_node.nid, new_one_born_on_this_frame=True)
+
+            e.node.parent.set_child(e.node.nid, new_node)
+            e.node = new_node
+            e.field_name = "name"
+            e.solid_content = None
+
+    def change_under_edit_to(self, new_one: int | None, new_one_born_on_this_frame: bool = False) -> None:
         if self.under_edit != None:
             if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
                 self.cur_under_edit.set_content("_")
 
         self.under_edit = new_one
-        if self.under_edit != None:
+        if self.under_edit != None and not new_one_born_on_this_frame:
             self.under_edit_cursor_idx = self.cur_under_edit.content_len()
         else:
             self.under_edit_cursor_idx = 0

@@ -25,6 +25,18 @@ class NodeBase:
         # table to map nid -> canvas position of the node
         self.nid: int = next_nid()
         self.parent: Node | None = None
+    
+    def set_child(self, nid: int, new_value: "Node") -> None:
+        for k, v in self.__dict__.items():
+            if isinstance(v, Node) and v.nid == nid:
+                self.__dict__[k] = new_value
+                return
+
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], Node):
+                for i, e in enumerate(v):
+                    if e.nid == nid:
+                       v[i] = new_value
+                       return
 
 @dataclass
 class Node(NodeBase):
