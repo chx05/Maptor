@@ -389,6 +389,9 @@ class Editor:
             case StmtBufferNode():
                 self.editable(s, "value", self.tc_normal)
 
+            case PassNode():
+                self.editable_solid("pass", s, self.tc_kw)
+
             case _:
                 raise NotImplementedError(s.__class__)
     
@@ -482,6 +485,9 @@ class Editor:
                 self.text(e.op, self.tc_kw)
                 self.one()
                 self.expr(e.r)
+
+            case ExprBufferNode():
+                self.editable(e, "value", self.tc_normal)
 
             case PlaceholderNode():
                 self.text("_", self.tc_wire)
@@ -669,9 +675,9 @@ class Editor:
     
     def handle_stmt_buffer_editing_inputs(self) -> None:
         if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
-            self.try_making_node_out_of_under_edit_buffer()
+            self.try_making_node_out_of_stmt_buffer()
 
-    def try_making_node_out_of_under_edit_buffer(self) -> bool:
+    def try_making_node_out_of_stmt_buffer(self) -> bool:
         content = self.cur_under_edit.content()
         buf_node = self.cur_under_edit.node
 
@@ -681,8 +687,8 @@ class Editor:
                 new_under_edit = new_node.nid
 
             case "if":
-                cond_node = IdentNode("x")
-                new_node = IfNode(cond_node, [CallNode(IdentNode("print"), ins=[LitNode("ok")], outs=[])])
+                cond_node = ExprBufferNode()
+                new_node = IfNode(cond_node, [PassNode()])
                 new_under_edit = cond_node.nid
 
             case _:
@@ -844,9 +850,12 @@ class Editor:
         if self.under_edit != None and not skip_previous_editable_fix:
             made_node_out_of_bufnode = False
             if isinstance(self.cur_under_edit.node, StmtBufferNode):
-                made_node_out_of_bufnode = self.try_making_node_out_of_under_edit_buffer()
+                made_node_out_of_bufnode = self.try_making_node_out_of_stmt_buffer()
 
             # checking this is very important, the node maker may change self.under_edit to None
+            if not made_node_out_of_bufnode and isinstance(self.cur_under_edit.node, ExprBufferNode):
+                made_node_out_of_bufnode = self.try_making_node_out_of_expr_buffer()
+
             if not made_node_out_of_bufnode:
                 if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
                     self.cur_under_edit.set_content("_")

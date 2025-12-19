@@ -168,5 +168,12 @@ class PlaceholderNode(Node):
     value: str = ""
 
 @dataclass
+class PassNode(PlaceholderNode, StmtNode):
+    pass
+
+@dataclass
 class StmtBufferNode(PlaceholderNode, StmtNode):
+    pass
+
+class ExprBufferNode(PlaceholderNode, ExprNode):
     pass

@@ -31,6 +31,8 @@ class Editable:
                 return self.content_len() < 1
             case StmtBufferNode():
                 return True
+            case ExprBufferNode():
+                return True
             case _:
                 return self.is_quoted_lit()
 
