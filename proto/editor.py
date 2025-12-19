@@ -23,6 +23,7 @@ class Editor:
         # nid
         self.under_edit: int | None = None
         self.under_edit_cursor_idx: int = 0
+        self.post_canvas_procs: list[Callable[[], None]] = []
 
         self.logs: dict[str, str] = {}
 
@@ -129,9 +130,9 @@ class Editor:
             pr.begin_mode_2d(self.cam)
             self.editables.clear()
             self.canvas()
+            self.run_post_canvas_procs()
             self.handle_editables()
             self.render_cursor()
-            # must be the last one
             self.inputs()
             pr.end_mode_2d()
             
@@ -142,6 +143,12 @@ class Editor:
         
         self.unload_stuff()
         pr.close_window()
+
+    def run_post_canvas_procs(self) -> None:
+        for p in self.post_canvas_procs:
+            p()
+        
+        self.post_canvas_procs.clear()
 
     def handle_editables(self) -> None:
         mouse_pos = pr.get_screen_to_world_2d(pr.get_mouse_position(), self.cam)
@@ -642,18 +649,55 @@ class Editor:
 
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER):
                 nid = self.add_node_below()
-                self.change_under_edit_to(nid, new_one_born_on_this_frame=True)
-                # we can't continue because that nid
-                # will be valid starting from the next frame
+                # this one is remote and is for actually
+                # switching to the new node
+                self.post_canvas_procs.append(
+                    lambda: self.change_under_edit_to(nid)
+                )
+                # this one is local
+                # it's just for flushing the previous stuff
+                self.change_under_edit_to(None)
                 return
-
+            
             if self.cur_under_edit.field_name == None:
-                self.handle_solid_editing_inputs(ctrl)
+                self.handle_solid_editing_inputs()
             else:
                 self.handle_editing_inputs(ctrl)
+            
+            if isinstance(self.cur_under_edit.node, StmtBufferNode):
+                self.handle_stmt_buffer_editing_inputs()
     
+    def handle_stmt_buffer_editing_inputs(self) -> None:
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
+            self.try_making_node_out_of_under_edit_buffer()
+
+    def try_making_node_out_of_under_edit_buffer(self) -> bool:
+        content = self.cur_under_edit.content()
+        buf_node = self.cur_under_edit.node
+
+        match content:
+            case "return":
+                new_node = ReturnNode()
+                new_under_edit = new_node.nid
+
+            case "if":
+                cond_node = IdentNode("x")
+                new_node = IfNode(cond_node, [CallNode(IdentNode("print"), ins=[LitNode("ok")], outs=[])])
+                new_under_edit = cond_node.nid
+
+            case _:
+                return False
+
+        self.change_under_edit_to(None, skip_previous_editable_fix=True)
+        new_node.parent = buf_node.parent
+        assert buf_node.parent != None
+        buf_node.parent.set_child(buf_node.nid, new_node)
+        self.post_canvas_procs.append(lambda: self.change_under_edit_to(new_under_edit))
+        return True
+
     def find_room_below(self, node: Node | None) -> tuple[list[Node], Node, Node]:
-        assert node != None, "Node type not found"
+        if node == None:
+            return (None, None, None) # type: ignore
 
         match node:
             case IncomeNode():
@@ -662,18 +706,30 @@ class Editor:
             case OutcomeNode():
                 assert isinstance(node.parent, FnNode)
                 return cast(list[Node], node.parent.outs), node, OutcomeNode("new_outcome", IdentNode("i32"))
+            case IfNode():
+                bn = StmtBufferNode()
+                bn.parent = node
+                return cast(list[Node], node.body), cast(Node, None), bn
             case StmtNode():
                 body = getattr(node.parent, "body")
                 return cast(list[Node], body), node, StmtBufferNode()
             case _:
                 return self.find_room_below(node.parent)
 
-    def add_node_below(self) -> int:
+    def add_node_below(self) -> int | None:
         node = self.cur_under_edit.node
         seq, cur, new_node = self.find_room_below(node)
 
-        new_node.parent = cur.parent
-        seq.insert(utils.index_of(seq, cur) + 1, new_node)
+        if seq == None:
+            return None
+
+        if cur != None:
+            new_node.parent = cur.parent
+            index = utils.index_of(seq, cur) + 1
+        else:
+            index = 0
+        
+        seq.insert(index, new_node)
 
         return new_node.nid
 
@@ -767,7 +823,7 @@ class Editor:
             case _:
                 return PlaceholderNode()
 
-    def handle_solid_editing_inputs(self, ctrl: bool) -> None:
+    def handle_solid_editing_inputs(self) -> None:
         assert self.under_edit != None
         e = self.cur_under_edit
         assert e.solid_content != None
@@ -777,23 +833,29 @@ class Editor:
             new_node = self.get_tmp_node_for(e.node)
             new_node.parent = e.node.parent
 
-            self.change_under_edit_to(new_node.nid, new_one_born_on_this_frame=True)
+            self.change_under_edit_to(new_node.nid, skip_cursor_set=True)
 
             e.node.parent.set_child(e.node.nid, new_node)
             e.node = new_node
             e.field_name = "name"
             e.solid_content = None
 
-    def change_under_edit_to(self, new_one: int | None, new_one_born_on_this_frame: bool = False) -> None:
-        if self.under_edit != None:
-            if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
-                self.cur_under_edit.set_content("_")
+    def change_under_edit_to(self, new_one: int | None, skip_previous_editable_fix: bool = False, skip_cursor_set: bool = False) -> None:
+        if self.under_edit != None and not skip_previous_editable_fix:
+            made_node_out_of_bufnode = False
+            if isinstance(self.cur_under_edit.node, StmtBufferNode):
+                made_node_out_of_bufnode = self.try_making_node_out_of_under_edit_buffer()
+
+            # checking this is very important, the node maker may change self.under_edit to None
+            if not made_node_out_of_bufnode:
+                if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
+                    self.cur_under_edit.set_content("_")
 
         self.under_edit = new_one
-        if self.under_edit != None and not new_one_born_on_this_frame:
-            self.under_edit_cursor_idx = self.cur_under_edit.content_len()
-        else:
+        if skip_cursor_set or self.under_edit == None:
             self.under_edit_cursor_idx = 0
+        else:
+            self.under_edit_cursor_idx = self.cur_under_edit.content_len()
 
     def handle_zoom(self, mouse_scroll: float) -> None:
         world_mouse_x = self.cam.target.x

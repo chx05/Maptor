@@ -37,6 +37,8 @@ class NodeBase:
                     if e.nid == nid:
                        v[i] = new_value
                        return
+        
+        raise ValueError(nid)
 
 @dataclass
 class Node(NodeBase):
