@@ -706,12 +706,7 @@ class Editor:
             case _:
                 return False
 
-        buf_node = self.cur_under_edit.node
-        self.change_under_edit_to(None, skip_previous_editable_fix=True)
-        new_node.parent = buf_node.parent
-        assert buf_node.parent != None
-        buf_node.parent.set_child(buf_node.nid, new_node)
-        self.post_canvas_procs.append(lambda: self.change_under_edit_to(new_under_edit))
+        self.replace_under_edit(new_node, new_under_edit)
         return True
     
     def try_making_node_out_of_expr_buffer(self) -> bool:
@@ -719,22 +714,18 @@ class Editor:
         content = content.strip()
 
         match content:
-            case "false":
-                new_node = LitNode(False)
+            case "false" | "true":
+                new_node = LitNode(content == "true")
                 new_under_edit = new_node.nid
-            case "true":
-                new_node = LitNode(True)
+            
+            case "null":
+                new_node = LitNode(None)
                 new_under_edit = new_node.nid
             
             case _:
                 return False
 
-        buf_node = self.cur_under_edit.node
-        self.change_under_edit_to(None, skip_previous_editable_fix=True)
-        new_node.parent = buf_node.parent
-        assert buf_node.parent != None
-        buf_node.parent.set_child(buf_node.nid, new_node)
-        self.post_canvas_procs.append(lambda: self.change_under_edit_to(new_under_edit))
+        self.replace_under_edit(new_node, new_under_edit)
         return True
 
     def find_room_below(self, node: Node | None, ctrl: bool, shift: bool) -> tuple[list[Node], Node, Node]:
@@ -778,7 +769,6 @@ class Editor:
             index = 0
         
         seq.insert(index, new_node)
-
         return new_node.nid
 
     def handle_editing_inputs(self, ctrl: bool) -> None:
@@ -815,6 +805,9 @@ class Editor:
             self.under_edit_cursor_idx += 1
             
         if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
+            if e.content_len() == 0 and e.is_quoted_lit():
+                self.replace_under_edit(ExprBufferNode())
+
             idx = self.under_edit_cursor_idx
             if ctrl:
                 content = e.content()
@@ -826,6 +819,22 @@ class Editor:
                     content = e.content()
                     e.set_content(content[:idx-1] + content[idx:])
                     self.under_edit_cursor_idx -= 1
+    
+    def replace_under_edit(self, new_node: Node, new_under_edit: int | None = None) -> None:
+        e = self.cur_under_edit
+        assert e.node.parent != None
+        new_node.parent = e.node.parent
+        e.node.parent.set_child(e.node.nid, new_node)
+
+        if new_under_edit == None:
+            self.post_canvas_procs.append(
+                lambda: self.change_under_edit_to(new_node.nid, skip_previous_editable_fix=True)
+            )
+        else:
+            self.change_under_edit_to(None, skip_previous_editable_fix=True)
+            self.post_canvas_procs.append(
+                lambda: self.change_under_edit_to(new_under_edit)
+            )
     
     def cursor_skip_word(self, direction: int) -> None:
         self.cursor_skip_while(direction, lambda c: c not in IDENT_CHARS)
