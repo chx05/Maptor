@@ -77,14 +77,14 @@ class Editor:
 
     def dark_mode(self) -> None:
         self.bg = pr.Color(20, 22, 28, 255)
-        self.tc_typing = pr.Color(255, 121, 140, 255)
+        self.tc_typing = pr.Color(236, 164, 0, 255)
         self.tc_normal = pr.Color(224, 225, 232, 255)
         self.tc_wire = pr.color_alpha(self.tc_normal, 0.25)
         self.tc_shapewire = pr.color_alpha(self.tc_wire, 0.15)
         self.tc_dbg_gui = pr.color_alpha(self.tc_normal, 0.35)
         self.tc_kw = pr.Color(255, 98, 151, 255)
         self.tc_lit = pr.Color(90, 247, 190, 255)
-        self.tc_fn_name = pr.Color(150, 180, 255, 255)
+        self.tc_fn_name = pr.Color(149, 147, 255, 255)
         self.tc_cursor = pr.Color(120, 200, 255, 255)
 
     def get_editable(self, nid: int) -> Editable:
@@ -654,7 +654,7 @@ class Editor:
                 self.change_under_edit_to(None)
 
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER):
-                nid = self.add_node_below()
+                nid = self.add_node_below(ctrl, shift)
                 # this one is remote and is for actually
                 # switching to the new node
                 self.post_canvas_procs.append(
@@ -672,14 +672,22 @@ class Editor:
             
             if isinstance(self.cur_under_edit.node, StmtBufferNode):
                 self.handle_stmt_buffer_editing_inputs()
+                return
+            
+            if isinstance(self.cur_under_edit.node, ExprBufferNode):
+                self.handle_expr_buffer_editing_inputs()
+                return
     
     def handle_stmt_buffer_editing_inputs(self) -> None:
         if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
             self.try_making_node_out_of_stmt_buffer()
 
+    def handle_expr_buffer_editing_inputs(self) -> None:
+        if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
+            self.try_making_node_out_of_expr_buffer()
+
     def try_making_node_out_of_stmt_buffer(self) -> bool:
         content = self.cur_under_edit.content()
-        buf_node = self.cur_under_edit.node
 
         match content:
             case "return":
@@ -690,10 +698,38 @@ class Editor:
                 cond_node = ExprBufferNode()
                 new_node = IfNode(cond_node, [PassNode()])
                 new_under_edit = cond_node.nid
+            
+            case "pass":
+                new_node = PassNode()
+                new_under_edit = new_node.nid
 
             case _:
                 return False
 
+        buf_node = self.cur_under_edit.node
+        self.change_under_edit_to(None, skip_previous_editable_fix=True)
+        new_node.parent = buf_node.parent
+        assert buf_node.parent != None
+        buf_node.parent.set_child(buf_node.nid, new_node)
+        self.post_canvas_procs.append(lambda: self.change_under_edit_to(new_under_edit))
+        return True
+    
+    def try_making_node_out_of_expr_buffer(self) -> bool:
+        content = self.cur_under_edit.content()
+        content = content.strip()
+
+        match content:
+            case "false":
+                new_node = LitNode(False)
+                new_under_edit = new_node.nid
+            case "true":
+                new_node = LitNode(True)
+                new_under_edit = new_node.nid
+            
+            case _:
+                return False
+
+        buf_node = self.cur_under_edit.node
         self.change_under_edit_to(None, skip_previous_editable_fix=True)
         new_node.parent = buf_node.parent
         assert buf_node.parent != None
@@ -701,9 +737,12 @@ class Editor:
         self.post_canvas_procs.append(lambda: self.change_under_edit_to(new_under_edit))
         return True
 
-    def find_room_below(self, node: Node | None) -> tuple[list[Node], Node, Node]:
+    def find_room_below(self, node: Node | None, ctrl: bool, shift: bool) -> tuple[list[Node], Node, Node]:
         if node == None:
             return (None, None, None) # type: ignore
+        
+        if ctrl and isinstance(node, StmtNode) and hasattr(node, "body"):
+            return getattr(node.parent, "body"), node, StmtBufferNode()
 
         match node:
             case IncomeNode():
@@ -712,19 +751,20 @@ class Editor:
             case OutcomeNode():
                 assert isinstance(node.parent, FnNode)
                 return cast(list[Node], node.parent.outs), node, OutcomeNode("new_outcome", IdentNode("i32"))
-            case IfNode():
+            case IfNode() if not shift:
                 bn = StmtBufferNode()
                 bn.parent = node
                 return cast(list[Node], node.body), cast(Node, None), bn
-            case StmtNode():
+            case StmtNode() if not ctrl:
                 body = getattr(node.parent, "body")
                 return cast(list[Node], body), node, StmtBufferNode()
             case _:
-                return self.find_room_below(node.parent)
+                return self.find_room_below(node.parent, ctrl, shift)
 
-    def add_node_below(self) -> int | None:
-        node = self.cur_under_edit.node
-        seq, cur, new_node = self.find_room_below(node)
+    def add_node_below(self, ctrl: bool, shift: bool) -> int | None:
+        e = self.cur_under_edit
+        node = e.node
+        seq, cur, new_node = self.find_room_below(node, ctrl, shift)
 
         if seq == None:
             return None
@@ -732,6 +772,8 @@ class Editor:
         if cur != None:
             new_node.parent = cur.parent
             index = utils.index_of(seq, cur) + 1
+            if shift:
+                index -= 1
         else:
             index = 0
         
@@ -825,7 +867,7 @@ class Editor:
             case StmtNode():
                 return StmtBufferNode()
             case ExprNode():
-                return IdentNode("")
+                return ExprBufferNode()
             case _:
                 return PlaceholderNode()
 
