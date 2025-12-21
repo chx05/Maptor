@@ -26,17 +26,19 @@ class NodeBase:
         self.nid: int = next_nid()
         self.parent: Node | None = None
     
-    def set_child(self, nid: int, new_value: "Node") -> None:
+    def set_child(self, nid: int, new_value: "Node | None") -> None:
         for k, v in self.__dict__.items():
             if isinstance(v, Node) and v.nid == nid:
-                self.__dict__[k] = new_value
+                if new_value == None: self.__dict__.pop(k)
+                else: self.__dict__[k] = new_value
                 return
 
             if isinstance(v, list) and len(v) > 0 and isinstance(v[0], Node):
                 for i, e in enumerate(v):
                     if e.nid == nid:
-                       v[i] = new_value
-                       return
+                        if new_value == None: v.pop(i)
+                        else: v[i] = new_value
+                        return
         
         raise ValueError(nid)
 
@@ -155,7 +157,8 @@ class IfNode(StmtNode):
 
 @dataclass
 class ElseNode(StmtNode):
-    ifnode: IfNode
+    ifnode: "IfNode | ElseNode"
+    expr: ExprNode | None
     body: list[StmtNode]
 
     def __post_init__(self) -> None:

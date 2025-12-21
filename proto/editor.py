@@ -369,14 +369,14 @@ class Editor:
             case ElseNode():
                 if not self.parallel_view_mode:
                     self.stmt(s.ifnode)
-                    self.render_else_node_only(s.body)
+                    self.render_else_node_only(s)
                 else:
                     self.begin_parallel()
                     self.stmt(s.ifnode)
 
                     self.new_column()
 
-                    self.render_else_node_only(s.body)
+                    self.render_else_node_only(s)
                     self.end_parallel()
             
             case AssignNode():
@@ -419,11 +419,14 @@ class Editor:
         if final_y > self.y:
             self.y = final_y
 
-    def render_else_node_only(self, body: list[StmtNode]) -> None:
+    def render_else_node_only(self, node: ElseNode) -> None:
         self.text("else", self.tc_kw)
+        if node.expr != None:
+            self.one()
+            self.expr(node.expr)
         self.scope_indent()
         self.icarry()
-        self.body(body)
+        self.body(node.body)
         self.scope_unindent()
 
     def use_local_max_x(self, local_max_x: float) -> None:
@@ -620,7 +623,8 @@ class Editor:
         shift = pr.is_key_down(pr.KeyboardKey.KEY_LEFT_SHIFT)
 
         mouse_dx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
-        if mouse_dx_btn or shift:
+        mouse_sx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)
+        if mouse_dx_btn or shift or mouse_sx_btn:
             delta = pr.get_mouse_delta()
             delta = pr.vector2_scale(delta, -1 / self.cam.zoom)
             self.cam.target = pr.vector2_add(self.cam.target, delta)
@@ -671,20 +675,12 @@ class Editor:
                 self.handle_editing_inputs(ctrl)
             
             if isinstance(self.cur_under_edit.node, StmtBufferNode):
-                self.handle_stmt_buffer_editing_inputs()
+                self.try_making_node_out_of_stmt_buffer()
                 return
             
             if isinstance(self.cur_under_edit.node, ExprBufferNode):
-                self.handle_expr_buffer_editing_inputs()
+                self.try_making_node_out_of_expr_buffer()
                 return
-    
-    def handle_stmt_buffer_editing_inputs(self) -> None:
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
-            self.try_making_node_out_of_stmt_buffer()
-
-    def handle_expr_buffer_editing_inputs(self) -> None:
-        if pr.is_key_pressed(pr.KeyboardKey.KEY_SPACE):
-            self.try_making_node_out_of_expr_buffer()
 
     def try_making_node_out_of_stmt_buffer(self) -> bool:
         content = self.cur_under_edit.content()
@@ -698,12 +694,25 @@ class Editor:
                 cond_node = ExprBufferNode()
                 new_node = IfNode(cond_node, [PassNode()])
                 new_under_edit = cond_node.nid
+
+            case "else":
+                cond_node = ExprBufferNode()
+                new_node = ElseNode(IfNode(cond_node, [PassNode()]), None, [PassNode()])
+                new_under_edit = cond_node.nid
             
             case "pass":
                 new_node = PassNode()
                 new_under_edit = new_node.nid
 
             case _:
+                if len(content) >= 2 and content[-1] == "(":
+                    content = self.cur_under_edit.content()
+                    buf_node = ExprBufferNode()
+                    self.replace_under_edit(
+                        CallNode(IdentNode(content[:-1]), ins=[buf_node], outs=[]),
+                        new_under_edit=buf_node.nid
+                    )
+                
                 return False
 
         self.replace_under_edit(new_node, new_under_edit)
@@ -820,9 +829,14 @@ class Editor:
                     e.set_content(content[:idx-1] + content[idx:])
                     self.under_edit_cursor_idx -= 1
     
-    def replace_under_edit(self, new_node: Node, new_under_edit: int | None = None) -> None:
+    def replace_under_edit(self, new_node: Node | None, new_under_edit: int | None = None) -> None:
         e = self.cur_under_edit
         assert e.node.parent != None
+
+        if new_node == None:
+            e.node.parent.set_child(e.node.nid, None)
+            return
+
         new_node.parent = e.node.parent
         e.node.parent.set_child(e.node.nid, new_node)
 
@@ -871,14 +885,14 @@ class Editor:
         
         self.under_edit_cursor_idx = i
 
-    def get_tmp_node_for(self, node: Node) -> Node:
+    def get_tmp_node_for(self, node: Node) -> tuple[Node, str]:
         match node:
             case StmtNode():
-                return StmtBufferNode()
+                return StmtBufferNode(), "value"
             case ExprNode():
-                return ExprBufferNode()
+                return ExprBufferNode(), "value"
             case _:
-                return PlaceholderNode()
+                return PlaceholderNode(), "value"
 
     def handle_solid_editing_inputs(self) -> None:
         assert self.under_edit != None
@@ -887,29 +901,30 @@ class Editor:
             
         if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
             assert e.node.parent != None
-            new_node = self.get_tmp_node_for(e.node)
+            new_node, field_name = self.get_tmp_node_for(e.node)
             new_node.parent = e.node.parent
 
             self.change_under_edit_to(new_node.nid, skip_cursor_set=True)
 
             e.node.parent.set_child(e.node.nid, new_node)
             e.node = new_node
-            e.field_name = "name"
+            e.field_name = field_name
             e.solid_content = None
 
     def change_under_edit_to(self, new_one: int | None, skip_previous_editable_fix: bool = False, skip_cursor_set: bool = False) -> None:
         if self.under_edit != None and not skip_previous_editable_fix:
-            made_node_out_of_bufnode = False
-            if isinstance(self.cur_under_edit.node, StmtBufferNode):
-                made_node_out_of_bufnode = self.try_making_node_out_of_stmt_buffer()
+            e = self.cur_under_edit
+            if isinstance(e.node, StmtBufferNode):
+                made = self.try_making_node_out_of_stmt_buffer()
 
-            # checking this is very important, the node maker may change self.under_edit to None
-            if not made_node_out_of_bufnode and isinstance(self.cur_under_edit.node, ExprBufferNode):
-                made_node_out_of_bufnode = self.try_making_node_out_of_expr_buffer()
-
-            if not made_node_out_of_bufnode:
-                if self.cur_under_edit.content_len() == 0 and not self.cur_under_edit.is_quoted_lit():
-                    self.cur_under_edit.set_content("_")
+                if not made:
+                    self.replace_under_edit(None)
+            else:
+                if isinstance(e.node, ExprBufferNode):
+                    self.try_making_node_out_of_expr_buffer()
+                
+                if e.content_len() == 0 and not e.is_quoted_lit():
+                    e.set_content("_")
 
         self.under_edit = new_one
         if skip_cursor_set or self.under_edit == None:
