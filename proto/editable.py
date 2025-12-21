@@ -41,7 +41,7 @@ class Editable:
             assert self.solid_content != None
             return " " * self.solid_content.length
         
-        return getattr(self.node, self.field_name)
+        return str(getattr(self.node, self.field_name))
     
     def set_content(self, content: str):
         if self.field_name == None:

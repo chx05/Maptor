@@ -157,8 +157,7 @@ class IfNode(StmtNode):
 
 @dataclass
 class ElseNode(StmtNode):
-    ifnode: "IfNode | ElseNode"
-    expr: ExprNode | None
+    ifnode: IfNode
     body: list[StmtNode]
 
     def __post_init__(self) -> None:

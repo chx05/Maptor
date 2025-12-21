@@ -43,7 +43,6 @@ class Project:
                             ifnode=IfNode(BinaryNode(IdentNode("sep"), "=", LitChrNode(' ')), body=[
                                 CallNode(IdentNode("print"), [LitNode("Alert: `sep` param is space")], []),
                             ]),
-                            expr=None,
                             body=[CallNode(IdentNode("print"), [LitNode("Info: `sep` param is not a space")], []),]
                         ),
                         AssignNode(IdentNode("l"), LitNode(None)),

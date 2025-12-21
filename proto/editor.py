@@ -76,7 +76,7 @@ class Editor:
         self.tc_cursor = pr.Color(0, 71, 119, 255)
 
     def dark_mode(self) -> None:
-        self.bg = pr.Color(20, 22, 28, 255)
+        self.bg = pr.Color(30, 32, 38, 255)
         self.tc_typing = pr.Color(236, 164, 0, 255)
         self.tc_normal = pr.Color(224, 225, 232, 255)
         self.tc_wire = pr.color_alpha(self.tc_normal, 0.25)
@@ -421,9 +421,6 @@ class Editor:
 
     def render_else_node_only(self, node: ElseNode) -> None:
         self.text("else", self.tc_kw)
-        if node.expr != None:
-            self.one()
-            self.expr(node.expr)
         self.scope_indent()
         self.icarry()
         self.body(node.body)
@@ -471,12 +468,14 @@ class Editor:
                         self.editable_solid("true" if e.value else "false", e, self.tc_lit)
                     case str():
                         self.editable_custom_render(
-                            '"' + repr("'" + e.value).removeprefix('"\'').replace("\\\\", "\\"),
+                            '"' + repr("'" + e.value).removeprefix('"\'').replace("\\\\", "\\").replace("\\\"", "\""),
                             self.x + self.adjust(1),
                             e,
                             "value",
                             self.tc_lit
                         )
+                    case int():
+                        self.editable(e, "value", self.tc_lit)
                     case _:
                         self.text(repr(e.value), self.tc_lit)
             
@@ -568,7 +567,7 @@ class Editor:
     
     def editable(self, node: Node, field_name: str, color: pr.Color) -> None:
         self.set_editable(Editable(node, field_name, self.x, self.y))
-        self.text(getattr(node, field_name), color)
+        self.text(str(getattr(node, field_name)), color)
         #txt = cast(str, getattr(node, field_name)).split("_")
         #for i, t in enumerate(txt):
         #    self.text(t, color)
@@ -624,7 +623,7 @@ class Editor:
 
         mouse_dx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_RIGHT)
         mouse_sx_btn = pr.is_mouse_button_down(pr.MouseButton.MOUSE_BUTTON_LEFT)
-        if mouse_dx_btn or shift or mouse_sx_btn:
+        if mouse_dx_btn or mouse_sx_btn:
             delta = pr.get_mouse_delta()
             delta = pr.vector2_scale(delta, -1 / self.cam.zoom)
             self.cam.target = pr.vector2_add(self.cam.target, delta)
@@ -697,7 +696,7 @@ class Editor:
 
             case "else":
                 cond_node = ExprBufferNode()
-                new_node = ElseNode(IfNode(cond_node, [PassNode()]), None, [PassNode()])
+                new_node = ElseNode(IfNode(cond_node, [PassNode()]), [PassNode()])
                 new_under_edit = cond_node.nid
             
             case "pass":
@@ -705,15 +704,22 @@ class Editor:
                 new_under_edit = new_node.nid
 
             case _:
-                if len(content) >= 2 and content[-1] == "(":
-                    content = self.cur_under_edit.content()
+                if content.endswith("("):
                     buf_node = ExprBufferNode()
                     self.replace_under_edit(
-                        CallNode(IdentNode(content[:-1]), ins=[buf_node], outs=[]),
+                        CallNode(IdentNode(content[:-1].strip()), ins=[buf_node], outs=[]),
                         new_under_edit=buf_node.nid
                     )
+                elif content.endswith("="):
+                    buf_node = ExprBufferNode()
+                    self.replace_under_edit(
+                        AssignNode(IdentNode(content[:-1].strip()), assigner=buf_node),
+                        new_under_edit=buf_node.nid
+                    )
+                else:
+                    return False
                 
-                return False
+                return True
 
         self.replace_under_edit(new_node, new_under_edit)
         return True
@@ -732,7 +738,15 @@ class Editor:
                 new_under_edit = new_node.nid
             
             case _:
-                return False
+                if content.isnumeric():
+                    # TODO this should be a int, and the exprbufnode should only allow digits
+                    new_node = LitNode(int(content))
+                    new_under_edit = new_node.nid
+                elif content.startswith('"'):
+                    new_node = LitNode(content.strip('"'))
+                    new_under_edit = new_node.nid
+                else:
+                    return False
 
         self.replace_under_edit(new_node, new_under_edit)
         return True
@@ -742,6 +756,11 @@ class Editor:
             return (None, None, None) # type: ignore
         
         if ctrl and isinstance(node, StmtNode) and hasattr(node, "body"):
+            # TODO if-else chains should be a different list-node instead of a recursive if-node
+            #      the current one is not scalable
+            if isinstance(node.parent, ElseNode):
+                return getattr(node.parent.parent, "body"), node.parent, StmtBufferNode()
+
             return getattr(node.parent, "body"), node, StmtBufferNode()
 
         match node:
@@ -751,7 +770,7 @@ class Editor:
             case OutcomeNode():
                 assert isinstance(node.parent, FnNode)
                 return cast(list[Node], node.parent.outs), node, OutcomeNode("new_outcome", IdentNode("i32"))
-            case IfNode() if not shift:
+            case IfNode() if not shift: # when we were in cond expr of an ifnode
                 bn = StmtBufferNode()
                 bn.parent = node
                 return cast(list[Node], node.body), cast(Node, None), bn
