@@ -453,7 +453,7 @@ class Editor:
             case LitChrNode():
                 assert isinstance(e.value, str)
                 self.editable_custom_render(
-                    "'" + repr('"' + e.value).removeprefix("'\"").replace("\\\\", "\\"),
+                    "'" + e.value + "'",
                     self.x + self.adjust(1),
                     e,
                     "value",
@@ -468,7 +468,7 @@ class Editor:
                         self.editable_solid("true" if e.value else "false", e, self.tc_lit)
                     case str():
                         self.editable_custom_render(
-                            '"' + repr("'" + e.value).removeprefix('"\'').replace("\\\\", "\\").replace("\\\"", "\""),
+                            '"' + e.value + '"',
                             self.x + self.adjust(1),
                             e,
                             "value",
@@ -939,19 +939,24 @@ class Editor:
             e.field_name = field_name
             e.solid_content = None
 
+    def is_editing_stmt(self) -> bool:
+        return utils.is_inside_stmt(None if self.under_edit == None else self.cur_under_edit.node)
+
     def change_under_edit_to(self, new_one: int | None, skip_previous_editable_fix: bool = False, skip_cursor_set: bool = False) -> None:
         if self.under_edit != None and not skip_previous_editable_fix:
             e = self.cur_under_edit
-            if isinstance(e.node, StmtBufferNode):
-                made = self.try_making_node_out_of_stmt_buffer()
+    
+            if e.content_len() == 0:
+                if isinstance(e.node, StmtNode):
+                    assert e.node.parent != None
+                    e.node.parent.set_child(e.node.nid, None)
 
-                if not made:
-                    self.replace_under_edit(None)
-            else:
-                if isinstance(e.node, ExprBufferNode):
-                    self.try_making_node_out_of_expr_buffer()
-                
-                if e.content_len() == 0 and not e.is_quoted_lit():
+                # TODO this may fail in future since now expressions can't be nested
+                if isinstance(e.node.parent, CallNode):
+                    e.node.parent.set_child(e.node.nid, None)
+                elif e.is_quoted_lit():
+                    pass
+                else:
                     e.set_content("_")
 
         self.under_edit = new_one
