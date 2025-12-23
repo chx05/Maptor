@@ -951,7 +951,7 @@ class Editor:
                     assert e.node.parent != None
                     e.node.parent.set_child(e.node.nid, None)
 
-                # TODO this may fail in future since now expressions can't be nested
+                # TODO this may fail in future since at the moment expressions can't be nested
                 if isinstance(e.node.parent, CallNode):
                     e.node.parent.set_child(e.node.nid, None)
                 elif e.is_quoted_lit():
