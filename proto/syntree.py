@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 
 PRIMITIVE_IDENTS = [
-    "i32", "str", "chr"
+    "i32", "str", "chr", "bool"
 ]
 
 IDENT_CHARS = string.digits + string.ascii_letters + "_"

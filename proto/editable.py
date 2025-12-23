@@ -19,6 +19,9 @@ class Editable:
 
     def is_quoted_lit(self) -> bool:
         return isinstance(self.node, (LitNode, LitChrNode)) and isinstance(self.node.value, str)
+
+    def is_num_lit(self) -> bool:
+        return isinstance(self.node, LitNode) and isinstance(self.node.value, int)
     
     def supports_char(self, c: str) -> bool:
         if c not in string.printable:
@@ -33,8 +36,12 @@ class Editable:
                 return True
             case ExprBufferNode():
                 return True
+            case LitNode() if self.is_quoted_lit():
+                return True
+            case LitNode() if self.is_num_lit():
+                return c.isdigit()
             case _:
-                return self.is_quoted_lit()
+                return False
 
     def content(self) -> str:
         if self.field_name == None:
@@ -48,7 +55,12 @@ class Editable:
             assert self.solid_content != None
             self.solid_content.length = len(content)
         else:
-            setattr(self.node, self.field_name, content)
+            if self.is_num_lit():
+                value = int(content)
+            else:
+                value = content
+            
+            setattr(self.node, self.field_name, value)
 
     def content_len(self) -> int:
         return len(self.content())

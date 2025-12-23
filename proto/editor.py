@@ -655,6 +655,7 @@ class Editor:
             
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
                 self.change_under_edit_to(None)
+                return
 
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ENTER):
                 nid = self.add_node_below(ctrl, shift)
@@ -743,7 +744,10 @@ class Editor:
                     new_node = LitNode(int(content))
                     new_under_edit = new_node.nid
                 elif content.startswith('"'):
-                    new_node = LitNode(content.strip('"'))
+                    new_node = LitNode(content.removeprefix('"'))
+                    new_under_edit = new_node.nid
+                elif content.startswith("'"):
+                    new_node = LitChrNode(content.removeprefix("'"))
                     new_under_edit = new_node.nid
                 else:
                     return False
@@ -835,6 +839,11 @@ class Editor:
         if pr.is_key_pressed(pr.KeyboardKey.KEY_BACKSPACE):
             if e.content_len() == 0 and e.is_quoted_lit():
                 self.replace_under_edit(ExprBufferNode())
+                return
+            
+            if e.is_num_lit() and (e.content_len() == 1 or ctrl):
+                self.replace_under_edit(ExprBufferNode())
+                return
 
             idx = self.under_edit_cursor_idx
             if ctrl:
