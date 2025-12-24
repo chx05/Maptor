@@ -652,6 +652,7 @@ class Editor:
                     self.change_under_edit_to(ks[ki-1 if ki-1 >= 0 else 0])
                 else:
                     self.change_under_edit_to(ks[ki+1 if ki+1 < len(ks) else len(ks)-1])
+                return
             
             if pr.is_key_pressed(pr.KeyboardKey.KEY_ESCAPE):
                 self.change_under_edit_to(None)
@@ -879,8 +880,8 @@ class Editor:
             )
     
     def cursor_skip_word(self, direction: int) -> None:
-        self.cursor_skip_while(direction, lambda c: c not in IDENT_CHARS)
-        self.cursor_skip_while(direction, lambda c: c in IDENT_CHARS)
+        self.cursor_skip_while(direction, lambda c: c not in IDENT_CHARS_NO_UNDERSCORE)
+        self.cursor_skip_while(direction, lambda c: c in IDENT_CHARS_NO_UNDERSCORE)
 
     def cursor_skip_while(self, direction: int, predicate: Callable[[str], bool]) -> None:
         skip_count = 0
@@ -950,10 +951,19 @@ class Editor:
                 if isinstance(e.node, StmtNode):
                     assert e.node.parent != None
                     e.node.parent.set_child(e.node.nid, None)
-
                 # TODO this may fail in future since at the moment expressions can't be nested
-                if isinstance(e.node.parent, CallNode):
-                    e.node.parent.set_child(e.node.nid, None)
+                elif isinstance(e.node.parent, CallNode):
+                    if e.node.parent.callee.nid == self.under_edit:
+                        # eliminating the statement directly
+                        assert e.node.parent.parent != None
+                        # maybe point to parameters' nid
+                        while new_one != None and e.node.parent.has_child(new_one):
+                            ks = self.get_editables_keys()
+                            new_one = self.editables[ks.index(new_one) + 1].node.nid
+                        e.node.parent.parent.set_child(e.node.parent.nid, None)
+                    else:
+                        # eliminating the income/outcome node only
+                        e.node.parent.set_child(e.node.nid, None)
                 elif e.is_quoted_lit():
                     pass
                 else:

@@ -7,7 +7,8 @@ PRIMITIVE_IDENTS = [
     "i32", "str", "chr", "bool"
 ]
 
-IDENT_CHARS = string.digits + string.ascii_letters + "_"
+IDENT_CHARS_NO_UNDERSCORE = string.digits + string.ascii_letters
+IDENT_CHARS = IDENT_CHARS_NO_UNDERSCORE + "_"
 
 
 incremental_nid: int = -1
@@ -25,11 +26,27 @@ class NodeBase:
         # table to map nid -> canvas position of the node
         self.nid: int = next_nid()
         self.parent: Node | None = None
+
+@dataclass
+class Node(NodeBase):
+    def __post_init__(self) -> None:
+        super().__init__()
     
-    def set_child(self, nid: int, new_value: "Node | None") -> None:
+    def has_child(self, nid: int) -> bool:
+        try:
+            self.set_child(nid, False)
+            return True
+        except ValueError:
+            return False
+
+    def set_child(self, nid: int, new_value: "Node | None | bool") -> None:
+        if isinstance(new_value, bool):
+            assert new_value == False
+        
         for k, v in self.__dict__.items():
             if isinstance(v, Node) and v.nid == nid:
                 if new_value == None: self.__dict__.pop(k)
+                elif new_value == False: pass
                 else: self.__dict__[k] = new_value
                 return
 
@@ -37,15 +54,16 @@ class NodeBase:
                 for i, e in enumerate(v):
                     if e.nid == nid:
                         if new_value == None: v.pop(i)
+                        elif new_value == False: pass
                         else: v[i] = new_value
+
+                        if len(v) == 0 and k == "body":
+                            pn = PassNode()
+                            pn.parent = self
+                            v.append(pn)
                         return
         
         raise ValueError(nid)
-
-@dataclass
-class Node(NodeBase):
-    def __post_init__(self) -> None:
-        super().__init__()
 
 @dataclass
 class DeclNode(Node):
@@ -68,8 +86,12 @@ class ExprNode(Node):
     pass
 
 @dataclass
+class IdentNode(ExprNode):
+    name: str
+
+@dataclass
 class CallNode(StmtNode):
-    callee: ExprNode
+    callee: IdentNode
     ins: list[ExprNode]
     outs: list[str]
 
@@ -77,10 +99,6 @@ class CallNode(StmtNode):
         self.callee.parent = self
         for n in self.ins: n.parent = self
         super().__post_init__()
-
-@dataclass
-class IdentNode(ExprNode):
-    name: str
 
 @dataclass
 class LitNode(ExprNode):
